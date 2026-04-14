@@ -287,7 +287,9 @@ async function init(): Promise<void> {
   });
 
   document.getElementById("jv-copy")!.addEventListener("click", () => {
-    navigator.clipboard.writeText(getPrettyRaw()).then(() => {
+    const contentToCopy = currentView === "raw" ? raw : getPrettyRaw();
+
+    navigator.clipboard.writeText(contentToCopy).then(() => {
       const btn = document.getElementById("jv-copy")!;
       const originalText = btn.textContent;
       btn.textContent = "Copied!";
