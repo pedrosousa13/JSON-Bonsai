@@ -346,6 +346,9 @@ async function init(): Promise<void> {
       el.classList.toggle("jv-active", key === name);
       el.classList.toggle("jv-hidden", key !== name);
     });
+    // The scroll position may have moved while the tree was hidden (window
+    // renders are skipped then), so re-render it on return.
+    if (name === "tree" && treeMounted) treeView.refresh();
   }
 
   viewBtns.forEach((btn) => {

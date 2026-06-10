@@ -317,6 +317,46 @@ describe("createTreeView", () => {
     ).toContain("data.metadata.count");
   });
 
+  test("scroll is not clamped to the tree height while the tree is hidden", async () => {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel({ a: 1, b: 2 });
+    const treeView = createTreeView(container, model, { scrollContainer });
+    await treeView.render();
+
+    // Another view (raw/formatted/schema) is active: the tree is hidden but
+    // the shared scroll container now holds taller content.
+    container.classList.add("jv-hidden");
+    scrollContainer.scrollTop = 5000;
+    scrollContainer.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(scrollContainer.scrollTop).toBe(5000);
+  });
+
+  test("refresh re-renders the window once the tree is visible again", async () => {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel({ a: 1, b: 2 });
+    const treeView = createTreeView(container, model, { scrollContainer });
+    await treeView.render();
+
+    container.classList.add("jv-hidden");
+    scrollContainer.scrollTop = 5000;
+    scrollContainer.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    container.classList.remove("jv-hidden");
+    treeView.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The window render ran and clamped the stale scroll offset back into
+    // the tree's own bounds.
+    expect(scrollContainer.scrollTop).toBeLessThan(5000);
+  });
+
   test("expandAll keeps DOM windowed at any size", async () => {
     const container = createContainer();
     const model = buildTreeModel({
