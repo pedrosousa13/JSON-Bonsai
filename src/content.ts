@@ -9,6 +9,7 @@ import {
   BUILTIN_SCHEMES,
   DEFAULT_DARK_ID,
   DEFAULT_LIGHT_ID,
+  parseScheme,
   schemeToCssVars,
   type Base16Scheme,
   type ThemeMode,
@@ -124,7 +125,17 @@ async function init(): Promise<void> {
       <button id="jv-copy"><span class="jv-copy-label">Copy JSON</span><kbd class="jv-kbd">C</kbd></button>
       <div id="jv-settings">
         <button id="jv-settings-toggle" title="Settings">⚙</button>
-        <div id="jv-settings-menu"></div>
+        <div id="jv-settings-menu">
+          <div class="jv-settings-row"><span>Dark theme</span><select id="jv-theme-dark-select"></select></div>
+          <div class="jv-settings-row"><span>Light theme</span><select id="jv-theme-light-select"></select></div>
+          <textarea id="jv-theme-paste" placeholder="Paste a base16 scheme (YAML or JSON)" spellcheck="false"></textarea>
+          <div class="jv-settings-row">
+            <a id="jv-theme-browse" href="https://github.com/tinted-theming/schemes" target="_blank" rel="noreferrer">Find more themes</a>
+            <button id="jv-theme-add">Add theme</button>
+          </div>
+          <div id="jv-theme-error"></div>
+          <ul id="jv-custom-list"></ul>
+        </div>
       </div>
     </div>
     <div id="jv-search-panel" hidden>
@@ -526,6 +537,114 @@ async function init(): Promise<void> {
       settingsMenu.classList.remove("jv-open");
     }
   });
+
+  const darkSelect = document.getElementById("jv-theme-dark-select") as HTMLSelectElement;
+  const lightSelect = document.getElementById("jv-theme-light-select") as HTMLSelectElement;
+  const pasteArea = document.getElementById("jv-theme-paste") as HTMLTextAreaElement;
+  const addThemeBtn = document.getElementById("jv-theme-add")!;
+  const themeError = document.getElementById("jv-theme-error")!;
+  const customList = document.getElementById("jv-custom-list")!;
+
+  function fillThemeSelect(
+    select: HTMLSelectElement,
+    variant: "dark" | "light",
+    activeId: string
+  ): void {
+    select.innerHTML = "";
+    for (const scheme of allSchemes().filter((s) => s.variant === variant)) {
+      const option = document.createElement("option");
+      option.value = scheme.id;
+      option.textContent = scheme.name;
+      option.selected = scheme.id === activeId;
+      select.appendChild(option);
+    }
+  }
+
+  function renderThemeControls(): void {
+    fillThemeSelect(darkSelect, "dark", themeState.darkId);
+    fillThemeSelect(lightSelect, "light", themeState.lightId);
+
+    customList.innerHTML = "";
+    for (const scheme of themeState.customs) {
+      const item = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = `${scheme.name} (${scheme.variant})`;
+      const deleteBtn = document.createElement("button");
+      deleteBtn.textContent = "✕";
+      deleteBtn.title = `Delete ${scheme.name}`;
+      deleteBtn.addEventListener("click", () => void deleteCustomTheme(scheme.id));
+      item.append(label, deleteBtn);
+      customList.appendChild(item);
+    }
+  }
+
+  async function saveCustomThemes(): Promise<void> {
+    await storageSet("jv-custom-themes", JSON.stringify(themeState.customs));
+  }
+
+  async function deleteCustomTheme(id: string): Promise<void> {
+    themeState.customs = themeState.customs.filter((s) => s.id !== id);
+    if (themeState.darkId === id) {
+      themeState.darkId = DEFAULT_DARK_ID;
+      await storageSet("jv-theme-dark", themeState.darkId);
+    }
+    if (themeState.lightId === id) {
+      themeState.lightId = DEFAULT_LIGHT_ID;
+      await storageSet("jv-theme-light", themeState.lightId);
+    }
+    await saveCustomThemes();
+    renderThemeControls();
+    applyTheme();
+  }
+
+  darkSelect.addEventListener("change", () => {
+    themeState.darkId = darkSelect.value;
+    void storageSet("jv-theme-dark", themeState.darkId);
+    applyTheme();
+  });
+
+  lightSelect.addEventListener("change", () => {
+    themeState.lightId = lightSelect.value;
+    void storageSet("jv-theme-light", themeState.lightId);
+    applyTheme();
+  });
+
+  addThemeBtn.addEventListener("click", () => void addCustomTheme());
+
+  async function addCustomTheme(): Promise<void> {
+    themeError.textContent = "";
+    let scheme: Base16Scheme;
+    try {
+      scheme = parseScheme(pasteArea.value);
+    } catch (error) {
+      themeError.textContent =
+        error instanceof Error ? error.message : "Invalid scheme";
+      return;
+    }
+
+    const existingIds = new Set(allSchemes().map((s) => s.id));
+    let candidateId = scheme.id;
+    let suffix = 2;
+    while (existingIds.has(candidateId)) {
+      candidateId = `${scheme.id}-${suffix++}`;
+    }
+    scheme.id = candidateId;
+
+    themeState.customs.push(scheme);
+    if (scheme.variant === "dark") {
+      themeState.darkId = scheme.id;
+      await storageSet("jv-theme-dark", scheme.id);
+    } else {
+      themeState.lightId = scheme.id;
+      await storageSet("jv-theme-light", scheme.id);
+    }
+    await saveCustomThemes();
+    pasteArea.value = "";
+    renderThemeControls();
+    applyTheme();
+  }
+
+  renderThemeControls();
 
   // Keyboard shortcuts
   const shortcuts: Record<string, () => void> = {

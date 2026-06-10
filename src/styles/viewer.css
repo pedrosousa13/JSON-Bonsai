@@ -512,11 +512,83 @@ html:has(#jv-root) {
   display: block;
 }
 
-#jv-settings-menu label {
+.jv-settings-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 12px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+#jv-settings-menu select {
+  font-family: inherit;
+  font-size: 12px;
+  max-width: 170px;
+  padding: 2px 4px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+#jv-theme-paste {
+  display: block;
+  width: 260px;
+  height: 72px;
+  margin-bottom: 8px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+#jv-theme-browse {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+#jv-theme-error {
+  max-width: 260px;
+  white-space: normal;
+  font-size: 11px;
+  color: var(--error);
+}
+
+#jv-custom-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+#jv-custom-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+#jv-custom-list button {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--btn-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+#jv-custom-list button:hover {
+  background: var(--btn-hover);
   color: var(--text);
 }
 
