@@ -197,6 +197,7 @@ async function init(): Promise<void> {
     const btn = document.createElement("button");
     btn.dataset.level = String(i);
     btn.textContent = String(i);
+    btn.title = `Show ${i} level${i === 1 ? "" : "s"} (press ${i})`;
     btn.addEventListener("click", () => {
       void treeView.collapseToLevel(i);
       setActiveLevel(btn);
@@ -207,6 +208,7 @@ async function init(): Promise<void> {
   const allBtn = document.createElement("button");
   allBtn.textContent = "All";
   allBtn.dataset.action = "expand-all";
+  allBtn.title = "Expand all (press 0)";
   allBtn.addEventListener("click", () => {
     void treeView.expandAll();
     setActiveLevel(allBtn);
@@ -480,6 +482,20 @@ async function init(): Promise<void> {
 
     const active = document.activeElement as HTMLElement | null;
     if (active?.matches('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
+
+    // Number keys collapse the tree to that depth (1-8); 0 expands all.
+    // Reuses the level buttons' own click handlers so behavior stays in sync.
+    if (/^[0-9]$/.test(e.key)) {
+      const levelButton =
+        e.key === "0"
+          ? allBtn
+          : levelsContainer.querySelector<HTMLButtonElement>(`button[data-level="${e.key}"]`);
+      if (levelButton) {
+        e.preventDefault();
+        levelButton.click();
+      }
+      return;
+    }
 
     const action = shortcuts[e.key.toLowerCase()];
     if (!action) return;
