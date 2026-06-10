@@ -234,7 +234,8 @@ html:has(#jv-root) {
 
 #jv-tree,
 #jv-formatted,
-#jv-raw {
+#jv-raw,
+#jv-schema {
   color: var(--text);
   margin: 0;
   font-family: inherit;
@@ -248,7 +249,8 @@ html:has(#jv-root) {
 }
 
 #jv-raw,
-#jv-formatted {
+#jv-formatted,
+#jv-schema {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: break-all;
