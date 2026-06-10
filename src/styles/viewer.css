@@ -504,6 +504,8 @@ html:has(#jv-root) {
   border: 1px solid var(--border);
   border-radius: 6px;
   white-space: nowrap;
+  max-width: calc(100vw - 32px);
+  overflow-x: auto;
   z-index: 20;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
