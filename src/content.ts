@@ -102,7 +102,7 @@ async function init(): Promise<void> {
       </div>
       <span id="jv-render-status"></span>
       <button id="jv-theme-toggle" title="Toggle theme"></button>
-      <button id="jv-copy">Copy JSON</button>
+      <button id="jv-copy"><span class="jv-copy-label">Copy JSON</span><kbd class="jv-kbd">C</kbd></button>
       <div id="jv-settings">
         <button id="jv-settings-toggle" title="Settings">⚙</button>
         <div id="jv-settings-menu">
@@ -163,6 +163,8 @@ async function init(): Promise<void> {
   const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
   const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl, schema: schemaEl };
   const copyBtn = document.getElementById("jv-copy")!;
+  const copyLabel = copyBtn.querySelector<HTMLElement>(".jv-copy-label")!;
+  const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
   const loadedViews = new Set<string>(["tree"]);
   let currentView = "tree";
   let searchTimer: number | null = null;
@@ -279,10 +281,14 @@ async function init(): Promise<void> {
     loadedViews.add(name);
   }
 
+  function copyLabelText(): string {
+    return currentView === "schema" ? "Copy JSON Schema" : "Copy JSON";
+  }
+
   function setView(name: string) {
     currentView = name;
     ensureViewContent(name);
-    copyBtn.textContent = name === "schema" ? "Copy JSON Schema" : "Copy JSON";
+    copyLabel.textContent = copyLabelText();
     viewBtns.forEach((btn) => btn.classList.toggle("jv-active", btn.dataset.view === name));
     Object.entries(views).forEach(([key, el]) => {
       el.classList.toggle("jv-active", key === name);
@@ -294,16 +300,26 @@ async function init(): Promise<void> {
     btn.addEventListener("click", () => setView(btn.dataset.view!));
   });
 
-  copyBtn.addEventListener("click", () => {
-    const text = currentView === "schema" ? schemaEl.textContent! : getPrettyRaw();
-    navigator.clipboard.writeText(text).then(() => {
-      const originalText = copyBtn.textContent;
-      copyBtn.textContent = "Copied!";
+  // Copy
+  function copyJson(): void {
+    const contentToCopy =
+      currentView === "schema"
+        ? schemaEl.textContent!
+        : currentView === "raw"
+          ? raw
+          : getPrettyRaw();
+
+    navigator.clipboard.writeText(contentToCopy).then(() => {
+      copyLabel.textContent = "Copied!";
+      copyKbd.classList.add("jv-hidden");
       setTimeout(() => {
-        copyBtn.textContent = originalText;
+        copyLabel.textContent = copyLabelText();
+        copyKbd.classList.remove("jv-hidden");
       }, 1000);
     });
-  });
+  }
+
+  copyBtn.addEventListener("click", copyJson);
 
   function updateSearchUi() {
     const state = treeView.getSearchState();
@@ -452,6 +468,24 @@ async function init(): Promise<void> {
   cursorCheckbox.addEventListener("change", async () => {
     await storageSet("jv-custom-cursor", String(cursorCheckbox.checked));
     applyCustomCursor(cursorCheckbox.checked);
+  });
+
+  // Keyboard shortcuts
+  const shortcuts: Record<string, () => void> = {
+    c: copyJson,
+  };
+
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    const active = document.activeElement as HTMLElement | null;
+    if (active?.matches('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
+
+    const action = shortcuts[e.key.toLowerCase()];
+    if (!action) return;
+
+    e.preventDefault();
+    action();
   });
 
   setupHoverPath(tree, treeView, pathText, pathDisplay, pathCopyBtn);

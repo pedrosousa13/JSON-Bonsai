@@ -521,6 +521,22 @@ html:has(#jv-root) {
   display: block;
 }
 
+.jv-kbd {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--btn-hover);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.jv-kbd.jv-hidden {
+  display: none;
+}
+
 #jv-settings {
   position: relative;
 }
