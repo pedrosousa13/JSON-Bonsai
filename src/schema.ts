@@ -1,25 +1,62 @@
+// Iterative (explicit stack) so deeply nested JSON can't blow the call stack.
 export function inferSchema(value: unknown): object {
-  if (value === null) return { type: "null" };
-  if (typeof value === "boolean") return { type: "boolean" };
-  if (typeof value === "number") return { type: "number" };
-  if (typeof value === "string") return { type: "string" };
-  if (Array.isArray(value)) {
-    if (value.length === 0) return { type: "array", items: {} };
-    const itemSchemas = value.map(inferSchema).filter(s => (s as any).type !== "null");
-    if (itemSchemas.length === 0) return { type: "array", items: { type: "null" } };
-    const merged = itemSchemas.reduce(mergeSchemas);
-    return { type: "array", items: merged };
-  }
-  if (typeof value === "object") {
-    const properties: Record<string, object> = {};
-    const required: string[] = [];
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      properties[k] = inferSchema(v);
-      required.push(k);
+  let rootSchema: object = {};
+
+  type Task =
+    | { kind: "visit"; value: unknown; assign: (schema: object) => void }
+    | { kind: "finalize"; finalize: () => void };
+
+  const stack: Task[] = [
+    { kind: "visit", value, assign: (schema) => { rootSchema = schema; } },
+  ];
+
+  while (stack.length > 0) {
+    const task = stack.pop()!;
+
+    if (task.kind === "finalize") {
+      task.finalize();
+      continue;
     }
-    return { type: "object", properties, required };
+
+    const v = task.value;
+    if (v === null) { task.assign({ type: "null" }); continue; }
+    if (typeof v === "boolean") { task.assign({ type: "boolean" }); continue; }
+    if (typeof v === "number") { task.assign({ type: "number" }); continue; }
+    if (typeof v === "string") { task.assign({ type: "string" }); continue; }
+
+    if (Array.isArray(v)) {
+      if (v.length === 0) { task.assign({ type: "array", items: {} }); continue; }
+      const itemSchemas: object[] = new Array(v.length);
+      // Runs after every item below has been visited (stack discipline).
+      stack.push({
+        kind: "finalize",
+        finalize: () => {
+          task.assign({ type: "array", items: itemSchemas.reduce(mergeSchemas) });
+        },
+      });
+      for (let i = v.length - 1; i >= 0; i--) {
+        stack.push({ kind: "visit", value: v[i], assign: (schema) => { itemSchemas[i] = schema; } });
+      }
+      continue;
+    }
+
+    if (typeof v === "object") {
+      const entries = Object.entries(v as Record<string, unknown>);
+      const properties: Record<string, object> = {};
+      const required = entries.map(([k]) => k);
+      // Children fill `properties` in place, so we can assign immediately.
+      task.assign({ type: "object", properties, required });
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const [k, child] = entries[i];
+        stack.push({ kind: "visit", value: child, assign: (schema) => { properties[k] = schema; } });
+      }
+      continue;
+    }
+
+    task.assign({});
   }
-  return {};
+
+  return rootSchema;
 }
 
 function mergeObjectSchemas(a: any, b: any): object {
