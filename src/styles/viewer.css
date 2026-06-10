@@ -114,6 +114,12 @@ html:has(#jv-root) {
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  /* Keep the toolbar out of Select All so Cmd/Ctrl+A grabs only the JSON. */
+  user-select: none;
+}
+
+#jv-search-panel {
+  user-select: none;
 }
 
 #jv-info {
