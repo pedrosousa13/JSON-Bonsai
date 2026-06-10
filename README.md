@@ -21,9 +21,8 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 - Three view modes: Tree, Formatted, and Raw
 - Copy JSON to clipboard
 - JSON payload available in the console as `window.data`
-- Light, dark, and auto (system) themes
+- base16 theming — 13 bundled schemes plus your own custom themes, with auto/dark/light mode switching
 - Indent guide lines with hover highlighting
-- Optional custom cursor (via settings)
 
 ## Installation
 
@@ -76,10 +75,43 @@ Navigate to any URL that returns JSON (e.g. `https://jsonplaceholder.typicode.co
 
 - **Level buttons** (1, 2, 3... All) — collapse/expand the tree to a specific depth
 - **View picker** (Tree / Formatted / Raw) — switch between interactive tree, pretty-printed JSON, and raw JSON
-- **Theme toggle** — cycle between auto, dark, and light
+- **Theme toggle** — cycle the theme mode between auto (◐), dark (☾), and light (☀)
 - **Copy JSON** — copy the full JSON to clipboard
 - **Click any line** — pins the JSON path in the toolbar, click Copy to copy it
 - **Console** — the parsed JSON is available as `window.data`
-- **Settings** (⚙) — toggle custom cursor
+- **Settings** (⚙) — pick your dark/light schemes and add custom themes (see [Theming](#theming))
 
 > **Privacy note:** the `window.data` convenience exposes the parsed payload to the page's main-world JavaScript (including any other extensions running there) on the page's own origin. It is not reachable by a remote attacker, but if you view authenticated API responses on a page that also runs scripts, be aware the payload is visible to them.
+
+## Theming
+
+JSON Bonsai uses [base16](https://github.com/tinted-theming/home) color schemes for syntax highlighting and the UI.
+
+### Mode
+
+The toolbar theme button cycles the theme **mode**:
+
+- **◐ Auto** — follows your operating system's light/dark setting
+- **☾ Dark** — always dark
+- **☀ Light** — always light
+
+You pair one dark scheme and one light scheme in the settings menu (⚙). In auto mode, the viewer switches between that pair as your OS flips between light and dark.
+
+### Bundled schemes
+
+13 schemes ship with the extension:
+
+- **Dark:** Catppuccin Mocha (default), Dracula, Nord, Gruvbox Dark, Solarized Dark, OneDark, Tokyo Night Dark, GitHub Dark, Monokai
+- **Light:** Catppuccin Latte (default), Gruvbox Light, Solarized Light, GitHub Light
+
+### Custom themes
+
+You can add any base16 scheme of your own:
+
+1. Open the settings menu (⚙) and choose **Add theme**
+2. Paste a base16 scheme as published in the [tinted-theming/schemes](https://github.com/tinted-theming/schemes) repo (YAML) — JSON is also accepted
+3. The theme is added to your scheme lists, ready to pair with a mode
+
+Invalid pastes show an inline error. Custom themes can be deleted from the settings menu; deleting one that's currently in use reverts to the default scheme.
+
+There are ~290 more ready-made schemes at [tinted-theming/schemes](https://github.com/tinted-theming/schemes) (also linked from the settings menu).
