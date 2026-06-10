@@ -9,7 +9,8 @@ const { ZipFile } = yazl;
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
 const distDir = resolve(projectRoot, "dist");
-const outputFile = resolve(projectRoot, "json-bonsai.zip");
+const outputName = process.argv[2] ?? "json-bonsai.zip";
+const outputFile = resolve(projectRoot, outputName);
 
 async function listFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -53,6 +54,7 @@ async function main() {
   }
 
   await new Promise((resolvePromise, rejectPromise) => {
+    zipFile.outputStream.on("error", rejectPromise);
     zipFile.outputStream
       .pipe(createWriteStream(outputFile))
       .on("close", resolvePromise)

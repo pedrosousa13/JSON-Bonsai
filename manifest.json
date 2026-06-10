@@ -5,7 +5,8 @@
   "description": "Prune, shape, and navigate giant JSON trees",
   "browser_specific_settings": {
     "gecko": {
-      "id": "json-bonsai@local"
+      "id": "json-bonsai@ef.design",
+      "strict_min_version": "115.0"
     }
   },
   "icons": {

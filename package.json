@@ -6,8 +6,13 @@
   "scripts": {
     "dev": "npm run build && vite build --watch --mode content",
     "build": "vite build --mode content && vite build --mode page-script && vite build --mode tree-worker",
+    "typecheck": "tsc --noEmit",
     "zip": "npm run build && node ./scripts/zip-dist.mjs",
+    "package": "npm run build && node ./scripts/zip-dist.mjs json-bonsai-chrome.zip && node ./scripts/zip-dist.mjs json-bonsai-firefox.zip",
     "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.39",

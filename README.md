@@ -27,6 +27,13 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 ## Installation
 
+Prebuilt `.zip` packages are attached to each [GitHub Release](https://github.com/pedrosousa13/JSON-Bonsai/releases). To run from source, build it first — the `dist/` folder is not committed:
+
+```bash
+npm install
+npm run build
+```
+
 ### Chrome
 
 1. Open Chrome and navigate to `chrome://extensions`
@@ -53,10 +60,13 @@ Firefox has a built-in JSON viewer that can prevent this add-on from taking over
 ## Development
 
 ```bash
-npm run dev    # watch mode — rebuilds on file changes
-npm run build  # production build
-npm run zip    # build and create json-bonsai.zip
+npm run dev      # watch mode — rebuilds on file changes
+npm run build    # production build
+npm run zip      # build and create json-bonsai.zip
+npm run package  # build and create per-store zips (Chrome + Firefox)
 ```
+
+Releases are automated: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, packages, attaches the zips to a GitHub Release, and (when store credentials are configured as repository secrets) publishes to the Chrome Web Store and Firefox Add-ons.
 
 After making changes, reload the extension in your browser.
 

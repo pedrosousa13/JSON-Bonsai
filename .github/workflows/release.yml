@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+      CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+      CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+      CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # Build once, emit one zip per store target (identical contents —
+      # a single manifest serves both Chrome and Firefox).
+      - run: npm run package
+
+      # Source archive for AMO review (Firefox requires source when the
+      # submitted code is bundled/minified).
+      - name: Create source archive
+        run: git archive --format=zip --output=json-bonsai-source.zip HEAD
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            json-bonsai-chrome.zip
+            json-bonsai-firefox.zip
+            json-bonsai-source.zip
+          generate_release_notes: true
+
+      - name: Publish to Chrome Web Store
+        if: ${{ env.CHROME_EXTENSION_ID != '' }}
+        uses: mnao305/chrome-extension-upload@v5
+        with:
+          file-path: json-bonsai-chrome.zip
+          extension-id: ${{ env.CHROME_EXTENSION_ID }}
+          client-id: ${{ env.CHROME_CLIENT_ID }}
+          client-secret: ${{ env.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ env.CHROME_REFRESH_TOKEN }}
+          publish: true
+
+      - name: Publish to Firefox Add-ons (AMO)
+        if: ${{ env.AMO_JWT_ISSUER != '' }}
+        uses: wdzeng/firefox-addon@v1
+        with:
+          addon-guid: json-bonsai@ef.design
+          xpi-path: json-bonsai-firefox.zip
+          source-file-path: json-bonsai-source.zip
+          jwt-issuer: ${{ env.AMO_JWT_ISSUER }}
+          jwt-secret: ${{ env.AMO_JWT_SECRET }}
