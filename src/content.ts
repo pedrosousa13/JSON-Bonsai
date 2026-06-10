@@ -51,11 +51,14 @@ interface ThemeState {
 
 async function loadThemeState(): Promise<ThemeState> {
   // One-time migration: jv-theme used to hold the mode; jv-custom-cursor is gone.
-  const legacy = await chrome.storage.local.get("jv-theme");
+  const legacy = await chrome.storage.local.get(["jv-theme", "jv-custom-cursor"]);
   if (typeof legacy["jv-theme"] === "string") {
     await chrome.storage.local.set({ "jv-theme-mode": legacy["jv-theme"] });
   }
-  await chrome.storage.local.remove(["jv-theme", "jv-custom-cursor"]);
+  const legacyKeys = ["jv-theme", "jv-custom-cursor"].filter((key) => key in legacy);
+  if (legacyKeys.length > 0) {
+    await chrome.storage.local.remove(legacyKeys);
+  }
 
   const stored = await chrome.storage.local.get({
     "jv-theme-mode": "auto",
@@ -139,8 +142,6 @@ async function init(): Promise<void> {
     </div>
   `;
 
-  body.appendChild(root);
-
   const themeState = await loadThemeState();
   const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
 
@@ -182,6 +183,8 @@ async function init(): Promise<void> {
   });
 
   applyTheme();
+
+  body.appendChild(root);
 
   const link = document.createElement("link");
   link.rel = "stylesheet";
