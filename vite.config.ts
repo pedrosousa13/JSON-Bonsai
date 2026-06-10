@@ -35,7 +35,6 @@ export default defineConfig(({ mode }) => {
               targets: [
                 { src: "manifest.json", dest: "." },
                 { src: "icons/*", dest: "icons" },
-                { src: "src/pointer-32.png", dest: "." },
               ],
             }),
           ]

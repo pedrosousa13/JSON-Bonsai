@@ -1,12 +1,15 @@
 {
   "manifest_version": 3,
   "name": "JSON Bonsai",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Prune, shape, and navigate giant JSON trees",
   "browser_specific_settings": {
     "gecko": {
       "id": "json-bonsai@ef.design",
-      "strict_min_version": "115.0"
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   },
   "icons": {
@@ -25,7 +28,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-script.js", "tree-worker.js", "pointer-32.png", "content.css"],
+      "resources": ["page-script.js", "tree-worker.js", "content.css"],
       "matches": ["<all_urls>"]
     }
   ]

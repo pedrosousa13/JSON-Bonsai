@@ -250,6 +250,7 @@ export interface TreeViewController {
   getNodeValue: (nodeId: number) => JsonValue;
   getAncestorIds: (nodeId: number) => number[];
   getRowElement: (nodeId: number) => HTMLElement | null;
+  refresh: () => void;
   dispose: () => void;
 }
 
@@ -539,6 +540,10 @@ export function createTreeView(
   function renderWindow(statusMessage?: string | null) {
     renderScheduled = false;
 
+    // Another view owns the shared scroll container while the tree is
+    // hidden; rendering would clamp its scroll position to the tree height.
+    if (container.classList.contains("jv-hidden")) return;
+
     const totalRows = totalVisibleRows();
     if (totalRows === 0) {
       spacer.style.height = "0px";
@@ -556,11 +561,13 @@ export function createTreeView(
     const scale =
       virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
 
+    // Clamp only the local value used for window math. The browser owns the
+    // real scroll bounds — its scrollable range includes container padding,
+    // so writing this clamp back made the last rows unreachable.
     const maxScroll = Math.max(0, physicalHeight - viewportHeight);
     let scrollTop = scrollContainer.scrollTop;
     if (scrollTop > maxScroll) {
       scrollTop = maxScroll;
-      scrollContainer.scrollTop = maxScroll;
     }
 
     const virtualScrollTop = scrollTop * scale;
@@ -814,6 +821,10 @@ export function createTreeView(
 
     getRowElement(nodeId: number): HTMLElement | null {
       return rowByNodeId.get(nodeId) || null;
+    },
+
+    refresh(): void {
+      scheduleWindowRender();
     },
 
     dispose(): void {

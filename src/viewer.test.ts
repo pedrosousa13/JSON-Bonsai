@@ -317,6 +317,69 @@ describe("createTreeView", () => {
     ).toContain("data.metadata.count");
   });
 
+  test("scroll is not clamped to the tree height while the tree is hidden", async () => {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel({ a: 1, b: 2 });
+    const treeView = createTreeView(container, model, { scrollContainer });
+    await treeView.render();
+
+    // Another view (raw/formatted/schema) is active: the tree is hidden but
+    // the shared scroll container now holds taller content.
+    container.classList.add("jv-hidden");
+    scrollContainer.scrollTop = 5000;
+    scrollContainer.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(scrollContainer.scrollTop).toBe(5000);
+  });
+
+  test("refresh re-renders the window once the tree is visible again", async () => {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel({
+      items: Array.from({ length: 500 }, (_, i) => ({ id: i })),
+    });
+    const treeView = createTreeView(container, model, { scrollContainer });
+    await treeView.render();
+    const rowsLayer = container.querySelector<HTMLElement>(".jv-tree-rows")!;
+    const initialTransform = rowsLayer.style.transform;
+
+    container.classList.add("jv-hidden");
+    scrollContainer.scrollTop = 5000;
+    scrollContainer.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(rowsLayer.style.transform).toBe(initialTransform);
+
+    container.classList.remove("jv-hidden");
+    treeView.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The window render ran for the scroll position it missed while hidden.
+    expect(rowsLayer.style.transform).not.toBe(initialTransform);
+  });
+
+  test("scrolling a visible tree never writes scrollTop back", async () => {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel({
+      items: Array.from({ length: 500 }, (_, i) => ({ id: i })),
+    });
+    const treeView = createTreeView(container, model, { scrollContainer });
+    await treeView.render();
+
+    // The browser owns the real scroll bounds (content padding, etc.); the
+    // virtualizer clamping scrollTop itself made the last rows unreachable.
+    scrollContainer.scrollTop = 999999;
+    scrollContainer.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(scrollContainer.scrollTop).toBe(999999);
+  });
+
   test("expandAll keeps DOM windowed at any size", async () => {
     const container = createContainer();
     const model = buildTreeModel({

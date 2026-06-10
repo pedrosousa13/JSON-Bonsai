@@ -34,6 +34,7 @@ html:has(#jv-root) {
   --btn-bg: transparent;
   --btn-hover: #45475a;
   --btn-active: #585b70;
+  --error: #f38ba8;
   font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
   font-size: 13px;
   line-height: 1.6;
@@ -44,63 +45,6 @@ html:has(#jv-root) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-#jv-root[data-custom-cursor="true"],
-#jv-root[data-custom-cursor="true"] * {
-  cursor: var(--cursor-custom, default) !important;
-}
-
-#jv-root[data-theme="light"] {
-  --bg: #ffffff;
-  --bg-toolbar: #f5f5f5;
-  --bg-hover: #e8e8e8;
-  --bg-tooltip: #333333;
-  --text: #212121;
-  --text-muted: #9e9e9e;
-  --border: #e0e0e0;
-  --accent: #1565c0;
-  --key: #1565c0;
-  --string: #2e7d32;
-  --number: #e65100;
-  --bool: #7b1fa2;
-  --link: #2e7d32;
-  --null: #9e9e9e;
-  --bracket: #757575;
-  --punctuation: #757575;
-  --guide: #e0e0e0;
-  --guide-current: rgba(202, 138, 4, 0.35);
-  --guide-ancestor: rgba(202, 138, 4, 0.12);
-  --btn-bg: transparent;
-  --btn-hover: #e0e0e0;
-  --btn-active: #bdbdbd;
-}
-
-@media (prefers-color-scheme: light) {
-  #jv-root[data-theme="auto"] {
-    --bg: #ffffff;
-    --bg-toolbar: #f5f5f5;
-    --bg-hover: #e8e8e8;
-    --bg-tooltip: #333333;
-    --text: #212121;
-    --text-muted: #9e9e9e;
-    --border: #e0e0e0;
-    --accent: #1565c0;
-    --key: #1565c0;
-    --string: #2e7d32;
-    --number: #e65100;
-    --bool: #7b1fa2;
-    --link: #2e7d32;
-    --null: #9e9e9e;
-    --bracket: #757575;
-    --punctuation: #757575;
-    --guide: #e0e0e0;
-    --guide-current: rgba(202, 138, 4, 0.8);
-    --guide-ancestor: rgba(202, 138, 4, 0.3);
-    --btn-bg: transparent;
-    --btn-hover: #e0e0e0;
-    --btn-active: #bdbdbd;
-  }
 }
 
 #jv-toolbar {
@@ -656,6 +600,8 @@ html:has(#jv-root) {
   border: 1px solid var(--border);
   border-radius: 6px;
   white-space: nowrap;
+  max-width: calc(100vw - 32px);
+  overflow-x: auto;
   z-index: 20;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
@@ -664,16 +610,84 @@ html:has(#jv-root) {
   display: block;
 }
 
-#jv-settings-menu label {
+.jv-settings-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+#jv-settings-menu select {
+  font-family: inherit;
+  font-size: 12px;
+  max-width: 170px;
+  padding: 2px 4px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+#jv-theme-paste {
+  display: block;
+  width: 260px;
+  height: 72px;
+  margin-bottom: 8px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+#jv-theme-browse {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+#jv-theme-error {
+  max-width: 260px;
+  white-space: normal;
+  font-size: 11px;
+  color: var(--error);
+}
+
+#jv-custom-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
   font-size: 12px;
   color: var(--text);
 }
 
-#jv-settings-menu input[type="checkbox"] {
-  accent-color: var(--accent);
+#jv-custom-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+#jv-custom-list button {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--btn-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+#jv-custom-list button:hover {
+  background: var(--btn-hover);
+  color: var(--text);
 }
 
 @media (max-width: 760px) {
