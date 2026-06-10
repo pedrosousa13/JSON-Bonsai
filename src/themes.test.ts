@@ -4,6 +4,8 @@ import {
   BUILTIN_SCHEMES,
   DEFAULT_DARK_ID,
   DEFAULT_LIGHT_ID,
+  guessVariant,
+  parseScheme,
   schemeToCssVars,
 } from "./themes";
 
@@ -75,5 +77,102 @@ describe("schemeToCssVars", () => {
         "--punctuation", "--string", "--text", "--text-muted",
       ].sort()
     );
+  });
+});
+
+const LATTE_YAML = `system: "base16"
+name: "Catppuccin Latte"
+author: "https://github.com/catppuccin/catppuccin"
+variant: "light"
+palette:
+  base00: "#eff1f5" # base
+  base01: "#e6e9ef" # mantle
+  base02: "#ccd0da" # surface0
+  base03: "#bcc0cc" # surface1
+  base04: "#acb0be" # surface2
+  base05: "#4c4f69" # text
+  base06: "#dc8a78" # rosewater
+  base07: "#7287fd" # lavender
+  base08: "#d20f39" # red
+  base09: "#fe640b" # peach
+  base0A: "#df8e1d" # yellow
+  base0B: "#40a02b" # green
+  base0C: "#179299" # teal
+  base0D: "#1e66f5" # blue
+  base0E: "#8839ef" # mauve
+  base0F: "#dd7878" # flamingo
+`;
+
+describe("guessVariant", () => {
+  test("dark background → dark", () => {
+    expect(guessVariant("#1e1e2e")).toBe("dark");
+  });
+
+  test("light background → light", () => {
+    expect(guessVariant("#eff1f5")).toBe("light");
+  });
+});
+
+describe("parseScheme", () => {
+  test("parses an official base16 YAML file", () => {
+    const scheme = parseScheme(LATTE_YAML);
+    expect(scheme.name).toBe("Catppuccin Latte");
+    expect(scheme.variant).toBe("light");
+    expect(scheme.id).toBe("custom-catppuccin-latte");
+    expect(scheme.palette.base00).toBe("#eff1f5");
+    expect(scheme.palette.base0F).toBe("#dd7878");
+  });
+
+  test("parses JSON with a palette wrapper", () => {
+    const json = JSON.stringify({
+      name: "My Theme",
+      variant: "dark",
+      palette: {
+        base00: "1e1e2e", base01: "#181825", base02: "#313244", base03: "#45475a",
+        base04: "#585b70", base05: "#cdd6f4", base06: "#f5e0dc", base07: "#b4befe",
+        base08: "#f38ba8", base09: "#fab387", base0A: "#f9e2af", base0B: "#a6e3a1",
+        base0C: "#94e2d5", base0D: "#89b4fa", base0E: "#cba6f7", base0F: "#f2cdcd",
+      },
+    });
+    const scheme = parseScheme(json);
+    expect(scheme.name).toBe("My Theme");
+    expect(scheme.variant).toBe("dark");
+    // "#" was missing on base00 — normalized
+    expect(scheme.palette.base00).toBe("#1e1e2e");
+  });
+
+  test("parses a flat JSON palette, guessing name and variant", () => {
+    const json = JSON.stringify({
+      base00: "#eff1f5", base01: "#e6e9ef", base02: "#ccd0da", base03: "#bcc0cc",
+      base04: "#acb0be", base05: "#4c4f69", base06: "#dc8a78", base07: "#7287fd",
+      base08: "#d20f39", base09: "#fe640b", base0A: "#df8e1d", base0B: "#40a02b",
+      base0C: "#179299", base0D: "#1e66f5", base0E: "#8839ef", base0F: "#dd7878",
+    });
+    const scheme = parseScheme(json);
+    expect(scheme.name).toBe("Custom");
+    expect(scheme.variant).toBe("light");
+  });
+
+  test("accepts lowercase slot keys (base0a)", () => {
+    const yaml = LATTE_YAML.replace("base0A:", "base0a:");
+    expect(parseScheme(yaml).palette.base0A).toBe("#df8e1d");
+  });
+
+  test("rejects a scheme missing a slot", () => {
+    const yaml = LATTE_YAML.replace(/^\s*base0F:.*$/m, "");
+    expect(() => parseScheme(yaml)).toThrow(/base0F/);
+  });
+
+  test("rejects invalid hex values", () => {
+    const yaml = LATTE_YAML.replace('"#eff1f5"', '"#zzzzzz"');
+    expect(() => parseScheme(yaml)).toThrow(/base00/);
+  });
+
+  test("rejects empty input", () => {
+    expect(() => parseScheme("   ")).toThrow();
+  });
+
+  test("rejects invalid JSON starting with {", () => {
+    expect(() => parseScheme("{not json")).toThrow(/JSON/);
   });
 });

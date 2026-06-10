@@ -227,3 +227,127 @@ export function schemeToCssVars(scheme: Base16Scheme): Record<string, string> {
     "--btn-bg": "transparent",
   };
 }
+
+const PALETTE_KEYS = [
+  "base00", "base01", "base02", "base03", "base04", "base05", "base06", "base07",
+  "base08", "base09", "base0A", "base0B", "base0C", "base0D", "base0E", "base0F",
+] as const;
+
+const HEX_RE = /^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
+
+function normalizeHex(value: string): string | null {
+  const match = HEX_RE.exec(value.trim());
+  if (!match) return null;
+  const hex = match[1].toLowerCase();
+  const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+  return `#${full}`;
+}
+
+export function guessVariant(base00: string): "dark" | "light" {
+  const hex = normalizeHex(base00) ?? "#000000";
+  const { r, g, b } = hexToRgb(hex);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.5 ? "light" : "dark";
+}
+
+function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "theme";
+}
+
+function normalizeSlotKey(key: string): string {
+  // base0a → base0A so lowercase keys are accepted
+  return key.slice(0, 5) + key.slice(5).toUpperCase();
+}
+
+interface RawScheme {
+  name?: string;
+  variant?: string;
+  palette: Record<string, string>;
+}
+
+function parseYamlScheme(text: string): RawScheme {
+  const palette: Record<string, string> = {};
+  let name: string | undefined;
+  let variant: string | undefined;
+
+  for (const line of text.split("\n")) {
+    const match =
+      /^\s*([A-Za-z0-9_]+):\s*(?:"([^"]*)"|'([^']*)'|([^#\s][^#]*?))\s*(?:#.*)?$/.exec(line);
+    if (!match) continue;
+    const key = match[1];
+    const value = (match[2] ?? match[3] ?? match[4] ?? "").trim();
+    if (/^base0[0-9A-Fa-f]$/.test(key)) {
+      palette[normalizeSlotKey(key)] = value;
+    } else if (key === "name") {
+      name = value;
+    } else if (key === "variant") {
+      variant = value;
+    }
+  }
+
+  return { name, variant, palette };
+}
+
+function parseJsonScheme(text: string): RawScheme {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("Invalid JSON");
+  }
+  if (typeof data !== "object" || data === null) {
+    throw new Error("Scheme must be a JSON object");
+  }
+  const obj = data as Record<string, unknown>;
+  const source =
+    typeof obj.palette === "object" && obj.palette !== null
+      ? (obj.palette as Record<string, unknown>)
+      : obj;
+
+  const palette: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === "string" && /^base0[0-9A-Fa-f]$/.test(key)) {
+      palette[normalizeSlotKey(key)] = value;
+    }
+  }
+
+  return {
+    name: typeof obj.name === "string" ? obj.name : undefined,
+    variant: typeof obj.variant === "string" ? obj.variant : undefined,
+    palette,
+  };
+}
+
+export function parseScheme(text: string): Base16Scheme {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("Paste a base16 scheme first");
+
+  const raw = trimmed.startsWith("{")
+    ? parseJsonScheme(trimmed)
+    : parseYamlScheme(trimmed);
+
+  const palette = {} as Record<(typeof PALETTE_KEYS)[number], string>;
+  for (const key of PALETTE_KEYS) {
+    const value = raw.palette[key];
+    const hex = value === undefined ? null : normalizeHex(value);
+    if (!hex) throw new Error(`Missing or invalid color for ${key}`);
+    palette[key] = hex;
+  }
+
+  const name = raw.name?.trim() || "Custom";
+  const variant =
+    raw.variant === "dark" || raw.variant === "light"
+      ? raw.variant
+      : guessVariant(palette.base00);
+
+  return {
+    id: `custom-${slugify(name)}`,
+    name,
+    variant,
+    palette: palette as Base16Palette,
+  };
+}
