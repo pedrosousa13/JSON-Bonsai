@@ -4,7 +4,8 @@ import { describe, expect, test } from "vitest";
 
 import { buildTreeModel } from "./tree-model";
 import { createTreeView } from "./viewer";
-import type { TreeSearchIndex } from "./tree-worker-client";
+import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-worker-client";
+import { runQuery } from "./query";
 
 function createContainer(): HTMLElement {
   const container = document.createElement("div");
@@ -262,6 +263,58 @@ describe("createTreeView", () => {
     const renderedRows = container.querySelectorAll(".jv-line").length;
     expect(renderedRows).toBeGreaterThan(0);
     expect(renderedRows).toBeLessThan(model.totalNodes);
+  });
+
+  test("swapping the model to a query result re-renders and search targets the result", async () => {
+    const container = createContainer();
+    const data = {
+      items: [
+        { name: "cheap", price: 5 },
+        { name: "pricey", price: 30 },
+      ],
+      metadata: { count: 2 },
+    };
+
+    const originalModel = buildTreeModel(data);
+    const originalView = createTreeView(container, originalModel);
+    await originalView.render();
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".jv-line:not([hidden])")).map(
+        (row) => row.dataset.path
+      )
+    ).toContain("data.metadata.count");
+
+    // Run a query and mount a fresh view for the result (mirrors mountTree).
+    const outcome = runQuery(data, "items[?price > `10`].name");
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const resultModel = buildTreeModel(outcome.result);
+    const resultIndex = createLocalTreeSearchIndex(resultModel);
+    const resultView = createTreeView(container, resultModel, {
+      searchIndex: resultIndex,
+    });
+    await resultView.render();
+
+    const visiblePaths = Array.from(
+      container.querySelectorAll<HTMLElement>(".jv-line:not([hidden])")
+    ).map((row) => row.dataset.path);
+    expect(visiblePaths).toEqual(["data", "data[0]"]);
+    expect(visiblePaths).not.toContain("data.metadata");
+
+    const state = await resultView.search("pricey");
+    expect(state.matchCount).toBe(1);
+    expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
+      "data[0]"
+    );
+
+    // Restoring mounts the original model again on the same container.
+    const restoredView = createTreeView(container, originalModel);
+    await restoredView.render();
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".jv-line:not([hidden])")).map(
+        (row) => row.dataset.path
+      )
+    ).toContain("data.metadata.count");
   });
 
   test("expandAll keeps DOM windowed at any size", async () => {

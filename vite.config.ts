@@ -8,6 +8,11 @@ export default defineConfig(({ mode }) => {
   const entry = entries.has(mode) ? mode : "content";
 
   return {
+    test: {
+      // Agent/tool worktrees under .claude/ contain repo copies; without this
+      // vitest picks up their test files too and runs everything twice.
+      exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    },
     build: {
       outDir: "dist",
       emptyOutDir: entry === "content",

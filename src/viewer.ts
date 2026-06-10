@@ -250,6 +250,7 @@ export interface TreeViewController {
   getNodeValue: (nodeId: number) => JsonValue;
   getAncestorIds: (nodeId: number) => number[];
   getRowElement: (nodeId: number) => HTMLElement | null;
+  dispose: () => void;
 }
 
 export function createTreeView(
@@ -814,18 +815,24 @@ export function createTreeView(
     getRowElement(nodeId: number): HTMLElement | null {
       return rowByNodeId.get(nodeId) || null;
     },
+
+    dispose(): void {
+      scrollContainer.removeEventListener("scroll", onScroll);
+    },
   };
 
-  scrollContainer.addEventListener("scroll", () => {
+  function onScroll(): void {
     scheduleWindowRender();
-  });
+  }
+
+  scrollContainer.addEventListener("scroll", onScroll);
 
   return controller;
 }
 
 export function setupHoverPath(
   tree: HTMLElement,
-  treeView: TreeViewController,
+  treeView: Pick<TreeViewController, "getAncestorIds" | "getRowElement">,
   pathText: HTMLElement,
   pathDisplay: HTMLElement,
   pathCopyBtn: HTMLElement
