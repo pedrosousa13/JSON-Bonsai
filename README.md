@@ -81,3 +81,5 @@ Navigate to any URL that returns JSON (e.g. `https://jsonplaceholder.typicode.co
 - **Click any line** — pins the JSON path in the toolbar, click Copy to copy it
 - **Console** — the parsed JSON is available as `window.data`
 - **Settings** (⚙) — toggle custom cursor
+
+> **Privacy note:** the `window.data` convenience exposes the parsed payload to the page's main-world JavaScript (including any other extensions running there) on the page's own origin. It is not reachable by a remote attacker, but if you view authenticated API responses on a page that also runs scripts, be aware the payload is visible to them.
