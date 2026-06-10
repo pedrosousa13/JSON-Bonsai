@@ -105,9 +105,7 @@ async function init(): Promise<void> {
       <button id="jv-copy"><span class="jv-copy-label">Copy JSON</span><kbd class="jv-kbd">C</kbd></button>
       <div id="jv-settings">
         <button id="jv-settings-toggle" title="Settings">⚙</button>
-        <div id="jv-settings-menu">
-          <label><input type="checkbox" id="jv-cursor-toggle"> Custom cursor</label>
-        </div>
+        <div id="jv-settings-menu"></div>
       </div>
     </div>
     <div id="jv-search-panel" hidden>
@@ -126,18 +124,6 @@ async function init(): Promise<void> {
   `;
 
   body.appendChild(root);
-
-  const cursorUrl = chrome.runtime.getURL("pointer-32.png");
-  function applyCustomCursor(enabled: boolean) {
-    if (enabled) {
-      root.style.setProperty("--cursor-custom", `url(${cursorUrl}), default`);
-      root.dataset.customCursor = "true";
-    } else {
-      root.style.removeProperty("--cursor-custom");
-      delete root.dataset.customCursor;
-    }
-  }
-  applyCustomCursor(await storageGet("jv-custom-cursor", "false") === "true");
 
   const link = document.createElement("link");
   link.rel = "stylesheet";
@@ -463,13 +449,6 @@ async function init(): Promise<void> {
     if (!(e.target as HTMLElement).closest("#jv-settings")) {
       settingsMenu.classList.remove("jv-open");
     }
-  });
-
-  const cursorCheckbox = document.getElementById("jv-cursor-toggle") as HTMLInputElement;
-  cursorCheckbox.checked = await storageGet("jv-custom-cursor", "false") === "true";
-  cursorCheckbox.addEventListener("change", async () => {
-    await storageSet("jv-custom-cursor", String(cursorCheckbox.checked));
-    applyCustomCursor(cursorCheckbox.checked);
   });
 
   // Keyboard shortcuts

@@ -46,11 +46,6 @@ html:has(#jv-root) {
   overflow: hidden;
 }
 
-#jv-root[data-custom-cursor="true"],
-#jv-root[data-custom-cursor="true"] * {
-  cursor: var(--cursor-custom, default) !important;
-}
-
 #jv-root[data-theme="light"] {
   --bg: #ffffff;
   --bg-toolbar: #f5f5f5;
@@ -574,10 +569,6 @@ html:has(#jv-root) {
   gap: 6px;
   font-size: 12px;
   color: var(--text);
-}
-
-#jv-settings-menu input[type="checkbox"] {
-  accent-color: var(--accent);
 }
 
 @media (max-width: 760px) {
