@@ -561,11 +561,13 @@ export function createTreeView(
     const scale =
       virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
 
+    // Clamp only the local value used for window math. The browser owns the
+    // real scroll bounds — its scrollable range includes container padding,
+    // so writing this clamp back made the last rows unreachable.
     const maxScroll = Math.max(0, physicalHeight - viewportHeight);
     let scrollTop = scrollContainer.scrollTop;
     if (scrollTop > maxScroll) {
       scrollTop = maxScroll;
-      scrollContainer.scrollTop = maxScroll;
     }
 
     const virtualScrollTop = scrollTop * scale;
