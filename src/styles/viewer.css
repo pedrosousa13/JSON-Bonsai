@@ -148,6 +148,102 @@ html:has(#jv-root) {
   font-size: 14px;
 }
 
+#jv-query-toggle {
+  font-size: 13px;
+}
+
+#jv-query-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+  user-select: none;
+}
+
+#jv-query-panel[hidden] {
+  display: none;
+}
+
+#jv-query-input {
+  width: min(380px, 55vw);
+  min-width: 200px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#jv-query-input::placeholder {
+  color: var(--text-muted);
+}
+
+#jv-query-panel button {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--btn-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+#jv-query-panel button:hover {
+  background: var(--btn-hover);
+}
+
+#jv-query-error {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #e5484d;
+}
+
+#jv-query-error[hidden] {
+  display: none;
+}
+
+#jv-query-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+#jv-query-chip[hidden] {
+  display: none;
+}
+
+#jv-query-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#jv-toolbar #jv-query-chip-clear {
+  padding: 0 6px;
+  border: none;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
 #jv-toolbar button {
   font-family: inherit;
   font-size: 12px;
@@ -595,12 +691,14 @@ html:has(#jv-root) {
 }
 
 @media (max-width: 760px) {
-  #jv-search-panel {
+  #jv-search-panel,
+  #jv-query-panel {
     left: 16px;
     right: 16px;
   }
 
-  #jv-search-input {
+  #jv-search-input,
+  #jv-query-input {
     flex: 1;
     min-width: 0;
     width: auto;

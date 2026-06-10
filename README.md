@@ -13,16 +13,18 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 ## Features
 
 - Virtualized tree rendering — smooth scrolling and interaction on 100k+ node payloads
-- Content search in a web worker with match navigation
-- Syntax highlighting for keys, strings, numbers, booleans, and null
-- Collapsible/expandable tree view with level controls
+- JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree
+- Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`)
+- Four view modes: Tree, Formatted, Raw, and Schema (inferred JSON Schema, draft-07)
+- Syntax highlighting for keys, strings, numbers, booleans, and null; URLs become clickable links
+- Collapsible/expandable tree view with level controls — press `1`–`8` to set depth, `0` to expand all
 - Hover any property to see its full JSON path — click to pin, then copy
-- Expand/collapse all children of an object with inline button
-- Three view modes: Tree, Formatted, and Raw
-- Copy JSON to clipboard
+- Per-node actions: copy any subtree's value, expand/collapse all children
+- Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
 - JSON payload available in the console as `window.data`
 - base16 theming — 13 bundled schemes plus your own custom themes, with auto/dark/light mode switching
 - Indent guide lines with hover highlighting
+- Cross-platform builds (Windows/macOS/Linux) and a single package that works in both Chrome and Firefox
 
 ## Installation
 
@@ -74,10 +76,13 @@ After making changes, reload the extension in your browser.
 Navigate to any URL that returns JSON (e.g. `https://jsonplaceholder.typicode.com/users`). The extension automatically detects JSON responses and replaces the page with an interactive viewer.
 
 - **Level buttons** (1, 2, 3... All) — collapse/expand the tree to a specific depth
-- **View picker** (Tree / Formatted / Raw) — switch between interactive tree, pretty-printed JSON, and raw JSON
+- **View picker** (Tree / Formatted / Raw / Schema) — switch between interactive tree, pretty-printed JSON, raw JSON, and an inferred JSON Schema
+- **Query** (ƒ or `Q`) — run a [JMESPath](https://jmespath.org) expression, e.g. `items[?price > \`10\`].name`; the result replaces the tree, ✕ on the chip restores the document
+- **Search** (⌕ or `⌘F`) — find keys, values, and paths; `Enter` / `Shift+Enter` step through matches
 - **Theme toggle** — cycle the theme mode between auto (◐), dark (☾), and light (☀)
-- **Copy JSON** — copy the full JSON to clipboard
+- **Copy JSON** (`C`) — copy what the active view shows
 - **Click any line** — pins the JSON path in the toolbar, click Copy to copy it
+- **Keyboard** — `1`–`8` set tree depth, `0` expands all, `C` copies, `Q` queries, `⌘F` searches
 - **Console** — the parsed JSON is available as `window.data`
 - **Settings** (⚙) — pick your dark/light schemes and add custom themes (see [Theming](#theming))
 
