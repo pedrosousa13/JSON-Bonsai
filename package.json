@@ -1,12 +1,12 @@
 {
-  "name": "json-alexander",
+  "name": "json-bonsai",
   "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "npm run build && ENTRY=content vite build --watch",
     "build": "ENTRY=content vite build && ENTRY=page-script vite build && ENTRY=tree-worker vite build",
-    "zip": "npm run build && cd dist && zip -r ../json-alexander.zip . && cd ..",
+    "zip": "npm run build && cd dist && zip -r ../json-bonsai.zip . && cd ..",
     "test": "vitest run"
   },
   "devDependencies": {

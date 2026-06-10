@@ -1,8 +1,8 @@
-# JSON Alexander
+# JSON Bonsai
 
-Believe it or not, George formats JSON. [Download for Chrome](https://chromewebstore.google.com/detail/json-alexander/aegihabihhhoihnomlekgheekcdcifpk) or download + install yourself.
+Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer built to stay smooth on 100k+ node payloads.
 
-![JSON Alexander](icons/JSON-Alexander.png)
+> **Note:** JSON Bonsai is a fork of [JSON Alexander](https://github.com/wesbos/JSON-Alexander) by [Wes Bos](https://github.com/wesbos), which is no longer actively maintained. Original work © Wes Bos, MIT licensed — see [LICENSE](LICENSE).
 
 ![Preview Chrome](src/preview-chrome.png)
 
@@ -10,6 +10,8 @@ Believe it or not, George formats JSON. [Download for Chrome](https://chromewebs
 
 ## Features
 
+- Virtualized tree rendering — smooth scrolling and interaction on 100k+ node payloads
+- Content search in a web worker with match navigation
 - Syntax highlighting for keys, strings, numbers, booleans, and null
 - Collapsible/expandable tree view with level controls
 - Hover any property to see its full JSON path — click to pin, then copy
@@ -51,7 +53,7 @@ Firefox has a built-in JSON viewer that can prevent this add-on from taking over
 ```bash
 npm run dev    # watch mode — rebuilds on file changes
 npm run build  # production build
-npm run zip    # build and create json-alexander.zip
+npm run zip    # build and create json-bonsai.zip
 ```
 
 After making changes, reload the extension in your browser.

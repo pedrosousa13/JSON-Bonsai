@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "JSON Alexander",
+  "name": "JSON Bonsai",
   "version": "1.1.0",
-  "description": "Believe it or not, George formats JSON",
+  "description": "Prune, shape, and navigate giant JSON trees",
   "browser_specific_settings": {
     "gecko": {
-      "id": "json-alexander@local"
+      "id": "json-bonsai@local"
     }
   },
   "icons": {
