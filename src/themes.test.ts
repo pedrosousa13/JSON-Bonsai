@@ -175,4 +175,24 @@ describe("parseScheme", () => {
   test("rejects invalid JSON starting with {", () => {
     expect(() => parseScheme("{not json")).toThrow(/JSON/);
   });
+
+  test("accepts quoted hex without #", () => {
+    const yaml = LATTE_YAML.replace('"#eff1f5"', '"eff1f5"');
+    expect(parseScheme(yaml).palette.base00).toBe("#eff1f5");
+  });
+
+  test("accepts unquoted #-prefixed hex", () => {
+    const yaml = LATTE_YAML.replace('base00: "#eff1f5"', "base00: #eff1f5");
+    expect(parseScheme(yaml).palette.base00).toBe("#eff1f5");
+  });
+
+  test("accepts unquoted hex with no space after the colon", () => {
+    const yaml = LATTE_YAML.replace('base00: "#eff1f5"', "base00:#eff1f5");
+    expect(parseScheme(yaml).palette.base00).toBe("#eff1f5");
+  });
+
+  test("strips trailing comments after unquoted values", () => {
+    const yaml = LATTE_YAML.replace('base00: "#eff1f5" # base', "base00: #eff1f5 # base");
+    expect(parseScheme(yaml).palette.base00).toBe("#eff1f5");
+  });
 });

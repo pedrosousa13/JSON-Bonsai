@@ -275,8 +275,10 @@ function parseYamlScheme(text: string): RawScheme {
   let variant: string | undefined;
 
   for (const line of text.split("\n")) {
+    // Unquoted values may start with # (bare hex); a comment only starts at
+    // whitespace-then-#, so `base00: #1d1f21 # note` parses as value + comment.
     const match =
-      /^\s*([A-Za-z0-9_]+):\s*(?:"([^"]*)"|'([^']*)'|([^#\s][^#]*?))\s*(?:#.*)?$/.exec(line);
+      /^\s*([A-Za-z0-9_]+):\s*(?:"([^"]*)"|'([^']*)'|(\S.*?))\s*(?:\s#.*)?$/.exec(line);
     if (!match) continue;
     const key = match[1];
     const value = (match[2] ?? match[3] ?? match[4] ?? "").trim();
