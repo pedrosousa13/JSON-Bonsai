@@ -1,10 +1,12 @@
-import { buildTreeModel, type JsonValue } from "./tree-model";
-import { createTreeView, setupHoverPath } from "./viewer";
+import { buildTreeModel, type JsonValue, type TreeModel } from "./tree-model";
+import { createTreeView, setupHoverPath, type TreeViewController } from "./viewer";
 import {
   createBestAvailableTreeSearchIndex,
   createLocalTreeSearchIndex,
+  type TreeSearchIndex,
 } from "./tree-worker-client";
 import { toJsonSchema } from "./schema";
+import { runQuery } from "./query";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
@@ -94,6 +96,8 @@ async function init(): Promise<void> {
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-copy" title="Copy path">Copy</button></span>
       <div id="jv-levels"></div>
       <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
+      <button id="jv-query-toggle" title="Query (JMESPath) (Q)">ƒ</button>
+      <span id="jv-query-chip" hidden><span id="jv-query-chip-text"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
@@ -116,6 +120,12 @@ async function init(): Promise<void> {
       <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
       <button id="jv-search-next" title="Next result (Enter)">↓</button>
       <button id="jv-search-clear" title="Close (Esc)">×</button>
+    </div>
+    <div id="jv-query-panel" hidden>
+      <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`].name" spellcheck="false" autocomplete="off">
+      <button id="jv-query-run" title="Run query (Enter)">Run</button>
+      <button id="jv-query-close" title="Close (Esc)">×</button>
+      <span id="jv-query-error" hidden></span>
     </div>
     <div id="jv-content">
       <div id="jv-tree"></div>
@@ -168,64 +178,95 @@ async function init(): Promise<void> {
   const loadedViews = new Set<string>(["tree"]);
   let currentView = "tree";
   let searchTimer: number | null = null;
+  let activeQueryResult: { expression: string; result: JsonValue } | null = null;
 
   renderStatus.textContent = "Indexing JSON...";
   const model = buildTreeModel(data);
-  const initialExpansionDepth =
-    model.totalNodes > LARGE_TREE_NODE_THRESHOLD
-      ? LARGE_TREE_INITIAL_EXPANSION_DEPTH
-      : null;
-  const searchIndex =
-    typeof Worker === "function"
-      ? createBestAvailableTreeSearchIndex(model)
-      : createLocalTreeSearchIndex(model);
-  const treeView = createTreeView(tree, model, {
-    initialExpansionDepth,
-    scrollContainer: content,
-    searchIndex,
-    onRenderStateChange(message) {
-      renderStatus.textContent = message;
-    },
-  });
+  let treeView!: TreeViewController;
+  let searchIndex: TreeSearchIndex | null = null;
 
-  const { maxDepth, totalNodes } = treeView.getStats();
-  info.textContent = `${totalNodes} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
-  await treeView.render();
-
-  const levelCount = Math.min(maxDepth, 8);
-  for (let i = 1; i <= levelCount; i++) {
-    const btn = document.createElement("button");
-    btn.dataset.level = String(i);
-    btn.textContent = String(i);
-    btn.title = `Show ${i} level${i === 1 ? "" : "s"} (press ${i})`;
-    btn.addEventListener("click", () => {
-      void treeView.collapseToLevel(i);
-      setActiveLevel(btn);
-    });
-    levelsContainer.appendChild(btn);
+  function createSearchIndexFor(treeModel: TreeModel): TreeSearchIndex {
+    return typeof Worker === "function"
+      ? createBestAvailableTreeSearchIndex(treeModel)
+      : createLocalTreeSearchIndex(treeModel);
   }
 
-  const allBtn = document.createElement("button");
-  allBtn.textContent = "All";
-  allBtn.dataset.action = "expand-all";
-  allBtn.title = "Expand all (press 0)";
-  allBtn.addEventListener("click", () => {
-    void treeView.expandAll();
-    setActiveLevel(allBtn);
-  });
-  levelsContainer.appendChild(allBtn);
-  if (initialExpansionDepth !== null) {
-    const initialLevelButton = levelsContainer.querySelector<HTMLElement>(
-      `button[data-level="${initialExpansionDepth}"]`
-    );
-    if (initialLevelButton) {
-      setActiveLevel(initialLevelButton);
-      renderStatus.textContent = `Large JSON: showing ${initialExpansionDepth} levels first. Search covers the full document.`;
+  // (Re)builds the tree view, search index, level buttons and node stats for
+  // the given model. Used for the initial mount, query results, and restore.
+  async function mountTree(treeModel: TreeModel): Promise<void> {
+    if (searchIndex !== null) {
+      // Not the first mount: detach the previous view and its index.
+      treeView.dispose();
+      searchIndex.dispose();
+    }
+    const initialExpansionDepth =
+      treeModel.totalNodes > LARGE_TREE_NODE_THRESHOLD
+        ? LARGE_TREE_INITIAL_EXPANSION_DEPTH
+        : null;
+    searchIndex = createSearchIndexFor(treeModel);
+    treeView = createTreeView(tree, treeModel, {
+      initialExpansionDepth,
+      scrollContainer: content,
+      searchIndex,
+      onRenderStateChange(message) {
+        renderStatus.textContent = message;
+      },
+    });
+
+    const { maxDepth, totalNodes } = treeView.getStats();
+    info.textContent = `${totalNodes} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
+    await treeView.render();
+    buildLevelButtons(maxDepth, initialExpansionDepth);
+
+    // The previous view's search state is gone with it; reset the search UI.
+    if (searchTimer !== null) {
+      window.clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    searchInput.value = "";
+    updateSearchUi();
+  }
+
+  function buildLevelButtons(
+    maxDepth: number,
+    initialExpansionDepth: number | null
+  ): void {
+    levelsContainer.innerHTML = "";
+    const levelCount = Math.min(maxDepth, 8);
+    for (let i = 1; i <= levelCount; i++) {
+      const btn = document.createElement("button");
+      btn.dataset.level = String(i);
+      btn.textContent = String(i);
+      btn.title = `Show ${i} level${i === 1 ? "" : "s"} (press ${i})`;
+      btn.addEventListener("click", () => {
+        void treeView.collapseToLevel(i);
+        setActiveLevel(btn);
+      });
+      levelsContainer.appendChild(btn);
+    }
+
+    const allBtn = document.createElement("button");
+    allBtn.textContent = "All";
+    allBtn.dataset.action = "expand-all";
+    allBtn.title = "Expand all (press 0)";
+    allBtn.addEventListener("click", () => {
+      void treeView.expandAll();
+      setActiveLevel(allBtn);
+    });
+    levelsContainer.appendChild(allBtn);
+    if (initialExpansionDepth !== null) {
+      const initialLevelButton = levelsContainer.querySelector<HTMLElement>(
+        `button[data-level="${initialExpansionDepth}"]`
+      );
+      if (initialLevelButton) {
+        setActiveLevel(initialLevelButton);
+        renderStatus.textContent = `Large JSON: showing ${initialExpansionDepth} levels first. Search covers the full document.`;
+      } else {
+        setActiveLevel(allBtn);
+      }
     } else {
       setActiveLevel(allBtn);
     }
-  } else {
-    setActiveLevel(allBtn);
   }
 
   function setActiveLevel(active: HTMLElement) {
@@ -234,6 +275,8 @@ async function init(): Promise<void> {
     );
     active.classList.add("jv-active");
   }
+
+  await mountTree(model);
 
   tree.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
@@ -309,7 +352,9 @@ async function init(): Promise<void> {
         ? schemaEl.textContent!
         : currentView === "raw"
           ? raw
-          : getPrettyRaw();
+          : currentView === "tree" && activeQueryResult !== null
+            ? JSON.stringify(activeQueryResult.result, null, 2)
+            : getPrettyRaw();
 
     navigator.clipboard.writeText(contentToCopy).then(() => {
       copyLabel.textContent = "Copied!";
@@ -446,10 +491,102 @@ async function init(): Promise<void> {
     if (e.key === "Escape" && !searchPanel.hidden) {
       e.preventDefault();
       closeSearchPanel();
+      return;
+    }
+
+    if (e.key === "Escape" && !queryPanel.hidden) {
+      e.preventDefault();
+      void closeQueryPanel();
     }
   });
 
   updateSearchUi();
+
+  // JMESPath query panel
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const queryToggleBtn = document.getElementById("jv-query-toggle")!;
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const queryRunBtn = document.getElementById("jv-query-run")!;
+  const queryCloseBtn = document.getElementById("jv-query-close")!;
+  const queryError = document.getElementById("jv-query-error")!;
+  const queryChip = document.getElementById("jv-query-chip")!;
+  const queryChipText = document.getElementById("jv-query-chip-text")!;
+  const queryChipClear = document.getElementById("jv-query-chip-clear")!;
+
+  function showQueryError(message: string): void {
+    queryError.textContent = message;
+    queryError.hidden = message === "";
+  }
+
+  function openQueryPanel(): void {
+    queryPanel.hidden = false;
+    queryInput.focus();
+    queryInput.select();
+  }
+
+  async function closeQueryPanel(): Promise<void> {
+    queryPanel.hidden = true;
+    showQueryError("");
+    await restoreOriginalTree();
+  }
+
+  async function restoreOriginalTree(): Promise<void> {
+    if (activeQueryResult === null) return;
+    activeQueryResult = null;
+    queryChip.hidden = true;
+    await mountTree(model);
+  }
+
+  async function runQueryExpression(): Promise<void> {
+    const expression = queryInput.value.trim();
+    if (!expression) {
+      showQueryError("");
+      await restoreOriginalTree();
+      return;
+    }
+
+    const outcome = runQuery(data, expression);
+    if (!outcome.ok) {
+      showQueryError(outcome.error);
+      return;
+    }
+
+    showQueryError("");
+    activeQueryResult = { expression, result: outcome.result };
+    queryChipText.textContent = `query: ${expression}`;
+    queryChip.hidden = false;
+    await mountTree(buildTreeModel(outcome.result));
+  }
+
+  queryToggleBtn.addEventListener("click", () => {
+    if (queryPanel.hidden) openQueryPanel();
+    else void closeQueryPanel();
+  });
+
+  queryRunBtn.addEventListener("click", () => {
+    void runQueryExpression();
+  });
+
+  queryCloseBtn.addEventListener("click", () => {
+    void closeQueryPanel();
+  });
+
+  queryChipClear.addEventListener("click", () => {
+    void restoreOriginalTree();
+  });
+
+  queryInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void runQueryExpression();
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      void closeQueryPanel();
+    }
+  });
 
   await updateThemeButton();
   document.getElementById("jv-theme-toggle")!.addEventListener("click", cycleTheme);
@@ -475,6 +612,7 @@ async function init(): Promise<void> {
   // Keyboard shortcuts
   const shortcuts: Record<string, () => void> = {
     c: copyJson,
+    q: openQueryPanel,
   };
 
   document.addEventListener("keydown", (e) => {
@@ -488,7 +626,7 @@ async function init(): Promise<void> {
     if (/^[0-9]$/.test(e.key)) {
       const levelButton =
         e.key === "0"
-          ? allBtn
+          ? levelsContainer.querySelector<HTMLButtonElement>('button[data-action="expand-all"]')
           : levelsContainer.querySelector<HTMLButtonElement>(`button[data-level="${e.key}"]`);
       if (levelButton) {
         e.preventDefault();
@@ -504,9 +642,20 @@ async function init(): Promise<void> {
     action();
   });
 
-  setupHoverPath(tree, treeView, pathText, pathDisplay, pathCopyBtn);
+  // Delegate so hover-path keeps working after the tree view is swapped
+  // (query result / restore re-create `treeView`).
+  setupHoverPath(
+    tree,
+    {
+      getAncestorIds: (nodeId) => treeView.getAncestorIds(nodeId),
+      getRowElement: (nodeId) => treeView.getRowElement(nodeId),
+    },
+    pathText,
+    pathDisplay,
+    pathCopyBtn
+  );
   window.addEventListener("pagehide", () => {
-    searchIndex.dispose();
+    searchIndex?.dispose();
   });
 
   injectPageData(raw);
