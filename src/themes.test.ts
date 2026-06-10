@@ -37,7 +37,7 @@ describe("BUILTIN_SCHEMES", () => {
 describe("schemeToCssVars", () => {
   const mocha = BUILTIN_SCHEMES.find((s) => s.id === "catppuccin-mocha")!;
 
-  test("maps Catppuccin Mocha to the current dark theme values", () => {
+  test("maps Catppuccin Mocha palette slots to CSS vars", () => {
     const vars = schemeToCssVars(mocha);
     expect(vars["--bg"]).toBe("#1e1e2e");
     expect(vars["--bg-toolbar"]).toBe("#181825");
@@ -63,5 +63,17 @@ describe("schemeToCssVars", () => {
     const vars = schemeToCssVars(mocha);
     expect(vars["--error"]).toBe("#f38ba8");
     expect(vars["--btn-bg"]).toBe("transparent");
+  });
+
+  test("emits the complete CSS var set", () => {
+    expect(Object.keys(schemeToCssVars(mocha)).sort()).toEqual(
+      [
+        "--accent", "--bg", "--bg-hover", "--bg-toolbar", "--bg-tooltip",
+        "--bool", "--border", "--bracket", "--btn-active", "--btn-bg",
+        "--btn-hover", "--error", "--guide", "--guide-ancestor",
+        "--guide-current", "--key", "--link", "--null", "--number",
+        "--punctuation", "--string", "--text", "--text-muted",
+      ].sort()
+    );
   });
 });

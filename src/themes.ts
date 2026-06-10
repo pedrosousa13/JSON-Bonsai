@@ -31,6 +31,8 @@ export const DEFAULT_LIGHT_ID = "catppuccin-latte";
 
 // Palettes sourced verbatim from https://github.com/tinted-theming/schemes
 // (spec-0.11 branch, base16/ directory), hex lowercased.
+// gruvbox-dark/-light use the "medium" contrast variants (gruvbox-dark-medium.yaml,
+// gruvbox-light-medium.yaml).
 export const BUILTIN_SCHEMES: Base16Scheme[] = [
   {
     id: "catppuccin-mocha",
@@ -195,6 +197,8 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// Muted/guide colors are derived from palette slots (base04, base0A) rather than
+// copied from the old hand-tuned CSS values, so every scheme themes them consistently.
 export function schemeToCssVars(scheme: Base16Scheme): Record<string, string> {
   const p = scheme.palette;
   return {
