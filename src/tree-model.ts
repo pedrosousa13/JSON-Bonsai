@@ -106,20 +106,43 @@ export function isContainerNode(node: JsonNode): boolean {
   return node.type === "object" || node.type === "array";
 }
 
+interface VisitTask {
+  value: JsonValue;
+  parentId: number | null;
+  key: string | number | null;
+  path: string;
+  depth: number;
+  isArrayElement: boolean;
+  isLast: boolean;
+  siblingIndex: number;
+}
+
 export function buildTreeModel(data: JsonValue): TreeModel {
   const nodes: JsonNode[] = [];
   const pathToId = new Map<string, number>();
   let maxDepth = 0;
+  let rootId = 0;
 
-  function visit(
-    value: JsonValue,
-    parentId: number | null,
-    key: string | number | null,
-    path: string,
-    depth: number,
-    isArrayElement: boolean,
-    isLast: boolean
-  ): number {
+  // Iterative pre-order traversal with an explicit stack. Children are pushed
+  // in reverse so they pop in forward order, preserving the recursive layout
+  // (node ids and childIds match a depth-first walk). An explicit stack avoids
+  // the call-stack overflow a recursive version hit on deeply nested JSON.
+  const stack: VisitTask[] = [
+    {
+      value: data,
+      parentId: null,
+      key: null,
+      path: "data",
+      depth: 0,
+      isArrayElement: false,
+      isLast: true,
+      siblingIndex: 0,
+    },
+  ];
+
+  while (stack.length > 0) {
+    const task = stack.pop()!;
+    const { value, parentId, key, path, depth, isArrayElement, isLast, siblingIndex } = task;
     const type = typeOf(value);
     const childCount = countEntries(value);
     const label = buildLabel(type, childCount);
@@ -128,7 +151,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
     const node: JsonNode = {
       id: nodes.length,
       parentId,
-      siblingIndex: 0,
+      siblingIndex,
       childIds: [],
       key,
       path,
@@ -149,46 +172,50 @@ export function buildTreeModel(data: JsonValue): TreeModel {
     nodes.push(node);
     pathToId.set(path, node.id);
     if (depth > maxDepth) maxDepth = depth;
-
-    if (Array.isArray(value)) {
-      value.forEach((item, index) => {
-        const childId = visit(
-          item,
-          node.id,
-          index,
-          buildPath(path, index, true),
-          depth + 1,
-          true,
-          index === value.length - 1
-        );
-        nodes[childId].siblingIndex = index;
-        node.childIds.push(childId);
-      });
-    } else if (value !== null && typeof value === "object") {
-      const keys = Object.keys(value);
-      keys.forEach((childKey, index) => {
-        const childId = visit(
-          value[childKey],
-          node.id,
-          childKey,
-          buildPath(path, childKey, false),
-          depth + 1,
-          false,
-          index === keys.length - 1
-        );
-        nodes[childId].siblingIndex = index;
-        node.childIds.push(childId);
-      });
+    if (parentId === null) {
+      rootId = node.id;
+    } else {
+      nodes[parentId].childIds.push(node.id);
     }
 
+    if (Array.isArray(value)) {
+      for (let index = value.length - 1; index >= 0; index--) {
+        stack.push({
+          value: value[index],
+          parentId: node.id,
+          key: index,
+          path: buildPath(path, index, true),
+          depth: depth + 1,
+          isArrayElement: true,
+          isLast: index === value.length - 1,
+          siblingIndex: index,
+        });
+      }
+    } else if (value !== null && typeof value === "object") {
+      const keys = Object.keys(value);
+      for (let index = keys.length - 1; index >= 0; index--) {
+        const childKey = keys[index];
+        stack.push({
+          value: value[childKey],
+          parentId: node.id,
+          key: childKey,
+          path: buildPath(path, childKey, false),
+          depth: depth + 1,
+          isArrayElement: false,
+          isLast: index === keys.length - 1,
+          siblingIndex: index,
+        });
+      }
+    }
+  }
+
+  // childIds are populated above; compute container flags in a second pass
+  // once every node exists.
+  for (const node of nodes) {
     node.hasNestedContainers = node.childIds.some((childId) =>
       isContainerNode(nodes[childId])
     );
-
-    return node.id;
   }
-
-  const rootId = visit(data, null, null, "data", 0, false, true);
 
   return {
     nodes,

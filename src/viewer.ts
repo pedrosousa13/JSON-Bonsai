@@ -134,6 +134,7 @@ function applyLeafValue(span: HTMLSpanElement, value: JsonValue): void {
       const a = document.createElement("a");
       a.className = "jv-link";
       a.rel = "noopener noreferrer";
+      a.target = "_blank";
       a.href = value;
       a.textContent = value;
       span.replaceChildren('"', a, '"');
