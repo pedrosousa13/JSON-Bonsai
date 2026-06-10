@@ -183,7 +183,14 @@ async function init(): Promise<void> {
   renderStatus.textContent = "Indexing JSON...";
   const model = buildTreeModel(data);
   let treeView!: TreeViewController;
-  let searchIndex: TreeSearchIndex | null = null;
+  let treeMounted = false;
+  // The original document's index lives for the whole page so swapping to a
+  // query result and back never pays the worker re-indexing cost again.
+  let originalSearchIndex: TreeSearchIndex | null = null;
+  let resultSearchIndex: TreeSearchIndex | null = null;
+  // Last level button the user picked on the original tree ("all" = expand
+  // all), so restoring after a query puts the depth back where they left it.
+  let originalLevelSelection: number | "all" | null = null;
 
   function createSearchIndexFor(treeModel: TreeModel): TreeSearchIndex {
     return typeof Worker === "function"
@@ -191,19 +198,16 @@ async function init(): Promise<void> {
       : createLocalTreeSearchIndex(treeModel);
   }
 
-  // (Re)builds the tree view, search index, level buttons and node stats for
-  // the given model. Used for the initial mount, query results, and restore.
-  async function mountTree(treeModel: TreeModel): Promise<void> {
-    if (searchIndex !== null) {
-      // Not the first mount: detach the previous view and its index.
-      treeView.dispose();
-      searchIndex.dispose();
-    }
+  // (Re)builds the tree view, level buttons and node stats for the given
+  // model. Used for the initial mount, query results, and restore. The search
+  // index lifecycle is owned by the callers.
+  async function mountTree(treeModel: TreeModel, searchIndex: TreeSearchIndex): Promise<void> {
+    if (treeMounted) treeView.dispose();
+    treeMounted = true;
     const initialExpansionDepth =
       treeModel.totalNodes > LARGE_TREE_NODE_THRESHOLD
         ? LARGE_TREE_INITIAL_EXPANSION_DEPTH
         : null;
-    searchIndex = createSearchIndexFor(treeModel);
     treeView = createTreeView(tree, treeModel, {
       initialExpansionDepth,
       scrollContainer: content,
@@ -241,6 +245,7 @@ async function init(): Promise<void> {
       btn.addEventListener("click", () => {
         void treeView.collapseToLevel(i);
         setActiveLevel(btn);
+        if (activeQueryResult === null) originalLevelSelection = i;
       });
       levelsContainer.appendChild(btn);
     }
@@ -252,6 +257,7 @@ async function init(): Promise<void> {
     allBtn.addEventListener("click", () => {
       void treeView.expandAll();
       setActiveLevel(allBtn);
+      if (activeQueryResult === null) originalLevelSelection = "all";
     });
     levelsContainer.appendChild(allBtn);
     if (initialExpansionDepth !== null) {
@@ -276,7 +282,8 @@ async function init(): Promise<void> {
     active.classList.add("jv-active");
   }
 
-  await mountTree(model);
+  originalSearchIndex = createSearchIndexFor(model);
+  await mountTree(model, originalSearchIndex);
 
   tree.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
@@ -411,7 +418,21 @@ async function init(): Promise<void> {
   const searchPanel = document.getElementById("jv-search-panel")!;
   const searchToggleBtn = document.getElementById("jv-search-toggle")!;
 
+  // Declared before the document keydown listener below so the handler never
+  // touches them in their temporal dead zone.
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const queryToggleBtn = document.getElementById("jv-query-toggle")!;
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const queryRunBtn = document.getElementById("jv-query-run")!;
+  const queryCloseBtn = document.getElementById("jv-query-close")!;
+  const queryError = document.getElementById("jv-query-error")!;
+  const queryChip = document.getElementById("jv-query-chip")!;
+  const queryChipText = document.getElementById("jv-query-chip-text")!;
+  const queryChipClear = document.getElementById("jv-query-chip-clear")!;
+
   function openSearchPanel(): void {
+    // The two panels occupy the same spot under the toolbar — one at a time.
+    queryPanel.hidden = true;
     searchPanel.hidden = false;
     searchInput.focus();
     searchInput.select();
@@ -448,6 +469,7 @@ async function init(): Promise<void> {
 
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       closeSearchPanel();
     }
   });
@@ -496,45 +518,52 @@ async function init(): Promise<void> {
 
     if (e.key === "Escape" && !queryPanel.hidden) {
       e.preventDefault();
-      void closeQueryPanel();
+      closeQueryPanel();
     }
   });
 
   updateSearchUi();
 
   // JMESPath query panel
-  const queryPanel = document.getElementById("jv-query-panel")!;
-  const queryToggleBtn = document.getElementById("jv-query-toggle")!;
-  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
-  const queryRunBtn = document.getElementById("jv-query-run")!;
-  const queryCloseBtn = document.getElementById("jv-query-close")!;
-  const queryError = document.getElementById("jv-query-error")!;
-  const queryChip = document.getElementById("jv-query-chip")!;
-  const queryChipText = document.getElementById("jv-query-chip-text")!;
-  const queryChipClear = document.getElementById("jv-query-chip-clear")!;
-
   function showQueryError(message: string): void {
     queryError.textContent = message;
     queryError.hidden = message === "";
   }
 
   function openQueryPanel(): void {
+    // The two panels occupy the same spot under the toolbar — one at a time.
+    closeSearchPanel();
     queryPanel.hidden = false;
     queryInput.focus();
     queryInput.select();
   }
 
-  async function closeQueryPanel(): Promise<void> {
+  // Hides the input UI only. An active query result stays on screen — the
+  // chip's ✕ (or an empty query) is what restores the original document.
+  function closeQueryPanel(): void {
     queryPanel.hidden = true;
     showQueryError("");
-    await restoreOriginalTree();
   }
 
   async function restoreOriginalTree(): Promise<void> {
     if (activeQueryResult === null) return;
     activeQueryResult = null;
     queryChip.hidden = true;
-    await mountTree(model);
+    showQueryError("");
+    resultSearchIndex?.dispose();
+    resultSearchIndex = null;
+    await mountTree(model, originalSearchIndex!);
+
+    // Put the depth back where the user had it before the query.
+    if (originalLevelSelection !== null) {
+      const btn =
+        originalLevelSelection === "all"
+          ? levelsContainer.querySelector<HTMLButtonElement>('button[data-action="expand-all"]')
+          : levelsContainer.querySelector<HTMLButtonElement>(
+              `button[data-level="${originalLevelSelection}"]`
+            );
+      btn?.click();
+    }
   }
 
   async function runQueryExpression(): Promise<void> {
@@ -555,12 +584,15 @@ async function init(): Promise<void> {
     activeQueryResult = { expression, result: outcome.result };
     queryChipText.textContent = `query: ${expression}`;
     queryChip.hidden = false;
-    await mountTree(buildTreeModel(outcome.result));
+    const resultModel = buildTreeModel(outcome.result);
+    resultSearchIndex?.dispose();
+    resultSearchIndex = createSearchIndexFor(resultModel);
+    await mountTree(resultModel, resultSearchIndex);
   }
 
   queryToggleBtn.addEventListener("click", () => {
     if (queryPanel.hidden) openQueryPanel();
-    else void closeQueryPanel();
+    else closeQueryPanel();
   });
 
   queryRunBtn.addEventListener("click", () => {
@@ -568,7 +600,7 @@ async function init(): Promise<void> {
   });
 
   queryCloseBtn.addEventListener("click", () => {
-    void closeQueryPanel();
+    closeQueryPanel();
   });
 
   queryChipClear.addEventListener("click", () => {
@@ -584,7 +616,8 @@ async function init(): Promise<void> {
 
     if (e.key === "Escape") {
       e.preventDefault();
-      void closeQueryPanel();
+      e.stopPropagation();
+      closeQueryPanel();
     }
   });
 
@@ -655,7 +688,8 @@ async function init(): Promise<void> {
     pathCopyBtn
   );
   window.addEventListener("pagehide", () => {
-    searchIndex?.dispose();
+    originalSearchIndex?.dispose();
+    resultSearchIndex?.dispose();
   });
 
   injectPageData(raw);
