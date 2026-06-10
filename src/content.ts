@@ -5,6 +5,14 @@ import {
   createLocalTreeSearchIndex,
 } from "./tree-worker-client";
 import { toJsonSchema } from "./schema";
+import {
+  BUILTIN_SCHEMES,
+  DEFAULT_DARK_ID,
+  DEFAULT_LIGHT_ID,
+  schemeToCssVars,
+  type Base16Scheme,
+  type ThemeMode,
+} from "./themes";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
@@ -30,38 +38,47 @@ function detectJSON(): { data: JsonValue; raw: string } | null {
   }
 }
 
-async function storageGet(key: string, defaultValue: string): Promise<string> {
-  const result = await chrome.storage.local.get({ [key]: defaultValue });
-  return result[key] as string;
-}
-
 async function storageSet(key: string, value: string): Promise<void> {
   await chrome.storage.local.set({ [key]: value });
 }
 
-async function getTheme(): Promise<string> {
-  return storageGet("jv-theme", "auto");
+interface ThemeState {
+  mode: ThemeMode;
+  darkId: string;
+  lightId: string;
+  customs: Base16Scheme[];
 }
 
-async function setTheme(theme: string): Promise<void> {
-  await storageSet("jv-theme", theme);
-  const root = document.getElementById("jv-root");
-  if (root) root.dataset.theme = theme;
-}
+async function loadThemeState(): Promise<ThemeState> {
+  // One-time migration: jv-theme used to hold the mode; jv-custom-cursor is gone.
+  const legacy = await chrome.storage.local.get("jv-theme");
+  if (typeof legacy["jv-theme"] === "string") {
+    await chrome.storage.local.set({ "jv-theme-mode": legacy["jv-theme"] });
+  }
+  await chrome.storage.local.remove(["jv-theme", "jv-custom-cursor"]);
 
-async function cycleTheme(): Promise<void> {
-  const current = await getTheme();
-  const next = current === "auto" ? "dark" : current === "dark" ? "light" : "auto";
-  await setTheme(next);
-  await updateThemeButton();
-}
+  const stored = await chrome.storage.local.get({
+    "jv-theme-mode": "auto",
+    "jv-theme-dark": DEFAULT_DARK_ID,
+    "jv-theme-light": DEFAULT_LIGHT_ID,
+    "jv-custom-themes": "[]",
+  });
 
-async function updateThemeButton(): Promise<void> {
-  const btn = document.getElementById("jv-theme-toggle");
-  if (!btn) return;
-  const theme = await getTheme();
-  const icons: Record<string, string> = { auto: "◐", dark: "☾", light: "☀" };
-  btn.textContent = icons[theme];
+  let customs: Base16Scheme[] = [];
+  try {
+    const parsed = JSON.parse(stored["jv-custom-themes"] as string) as unknown;
+    if (Array.isArray(parsed)) customs = parsed as Base16Scheme[];
+  } catch {
+    // Corrupted storage — start with no custom themes.
+  }
+
+  const mode = stored["jv-theme-mode"] as string;
+  return {
+    mode: mode === "dark" || mode === "light" ? mode : "auto",
+    darkId: stored["jv-theme-dark"] as string,
+    lightId: stored["jv-theme-light"] as string,
+    customs,
+  };
 }
 
 async function init(): Promise<void> {
@@ -86,7 +103,6 @@ async function init(): Promise<void> {
 
   const root = document.createElement("div");
   root.id = "jv-root";
-  root.dataset.theme = await getTheme();
 
   root.innerHTML = `
     <div id="jv-toolbar">
@@ -124,6 +140,48 @@ async function init(): Promise<void> {
   `;
 
   body.appendChild(root);
+
+  const themeState = await loadThemeState();
+  const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
+
+  function allSchemes(): Base16Scheme[] {
+    return [...BUILTIN_SCHEMES, ...themeState.customs];
+  }
+
+  function findScheme(id: string, variant: "dark" | "light"): Base16Scheme {
+    const fallbackId = variant === "dark" ? DEFAULT_DARK_ID : DEFAULT_LIGHT_ID;
+    return (
+      allSchemes().find((s) => s.id === id) ??
+      BUILTIN_SCHEMES.find((s) => s.id === fallbackId)!
+    );
+  }
+
+  function resolveScheme(): Base16Scheme {
+    const variant =
+      themeState.mode === "auto"
+        ? prefersLight.matches
+          ? "light"
+          : "dark"
+        : themeState.mode;
+    return variant === "dark"
+      ? findScheme(themeState.darkId, "dark")
+      : findScheme(themeState.lightId, "light");
+  }
+
+  function applyTheme(): void {
+    const scheme = resolveScheme();
+    for (const [name, value] of Object.entries(schemeToCssVars(scheme))) {
+      root.style.setProperty(name, value);
+    }
+    // Overscroll area behind the viewer follows the toolbar color.
+    document.documentElement.style.background = scheme.palette.base01;
+  }
+
+  prefersLight.addEventListener("change", () => {
+    if (themeState.mode === "auto") applyTheme();
+  });
+
+  applyTheme();
 
   const link = document.createElement("link");
   link.rel = "stylesheet";
@@ -437,8 +495,23 @@ async function init(): Promise<void> {
 
   updateSearchUi();
 
-  await updateThemeButton();
-  document.getElementById("jv-theme-toggle")!.addEventListener("click", cycleTheme);
+  const modeIcons: Record<ThemeMode, string> = { auto: "◐", dark: "☾", light: "☀" };
+  const themeToggleBtn = document.getElementById("jv-theme-toggle")!;
+
+  function updateModeButton(): void {
+    themeToggleBtn.textContent = modeIcons[themeState.mode];
+    themeToggleBtn.title = `Theme mode: ${themeState.mode}`;
+  }
+
+  themeToggleBtn.addEventListener("click", async () => {
+    themeState.mode =
+      themeState.mode === "auto" ? "dark" : themeState.mode === "dark" ? "light" : "auto";
+    await storageSet("jv-theme-mode", themeState.mode);
+    updateModeButton();
+    applyTheme();
+  });
+
+  updateModeButton();
 
   const settingsToggle = document.getElementById("jv-settings-toggle")!;
   const settingsMenu = document.getElementById("jv-settings-menu")!;
