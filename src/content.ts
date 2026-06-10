@@ -292,7 +292,9 @@ async function init(): Promise<void> {
   const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
 
   function copyJson(): void {
-    navigator.clipboard.writeText(getPrettyRaw()).then(() => {
+    const contentToCopy = currentView === "raw" ? raw : getPrettyRaw();
+
+    navigator.clipboard.writeText(contentToCopy).then(() => {
       const orig = copyLabel.textContent;
       copyLabel.textContent = "Copied!";
       copyKbd.classList.add("jv-hidden");
@@ -463,7 +465,7 @@ async function init(): Promise<void> {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
     const active = document.activeElement as HTMLElement | null;
-    if (active?.matches('input, textarea, [contenteditable], [contenteditable="true"]')) return;
+    if (active?.matches('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
 
     const action = shortcuts[e.key.toLowerCase()];
     if (!action) return;

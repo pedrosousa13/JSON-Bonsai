@@ -2,7 +2,9 @@
 
 Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer built to stay smooth on 100k+ node payloads.
 
-> **Note:** JSON Bonsai is a fork of [JSON Alexander](https://github.com/wesbos/JSON-Alexander) by [Wes Bos](https://github.com/wesbos), which is no longer actively maintained. Original work © Wes Bos, MIT licensed — see [LICENSE](LICENSE).
+> **Note:** JSON Bonsai is a fork of [JSON Alexander](https://github.com/wesbos/JSON-Alexander) by [Wes Bos](https://github.com/wesbos). Original work © Wes Bos, MIT licensed — see [LICENSE](LICENSE).
+
+![JSON Bonsai](icons/json-bonsai.webp)
 
 ![Preview Chrome](src/preview-chrome.png)
 
