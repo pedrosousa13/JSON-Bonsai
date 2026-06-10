@@ -59,9 +59,13 @@ export function inferSchema(value: unknown): object {
   return rootSchema;
 }
 
+// Merges `b` into `a` in place and returns `a`. `a` is always an intermediate
+// accumulator (an array item's schema being reduced), never aliased elsewhere,
+// so mutating it is safe and avoids copying the accumulated properties on every
+// merge — that copy made schema inference O(n^2) over arrays of objects with
+// many distinct keys.
 function mergeObjectSchemas(a: any, b: any): object {
-  const properties: Record<string, object> = { ...a.properties };
-  const aReq = new Set<string>(a.required ?? []);
+  const properties: Record<string, object> = a.properties ?? (a.properties = {});
   const bReq = new Set<string>(b.required ?? []);
 
   for (const [k, v] of Object.entries(b.properties ?? {})) {
@@ -70,8 +74,8 @@ function mergeObjectSchemas(a: any, b: any): object {
       : (v as object);
   }
 
-  const required = [...aReq].filter(k => bReq.has(k));
-  return { type: "object", properties, required };
+  a.required = (a.required ?? []).filter((k: string) => bReq.has(k));
+  return a;
 }
 
 function mergeSchemas(a: object, b: object): object {

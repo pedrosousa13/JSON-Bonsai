@@ -54,6 +54,24 @@ describe("inferSchema", () => {
     });
   });
 
+  test("merges a large array of distinct-keyed objects without O(n^2) blowup", () => {
+    // Each object contributes a unique key; the previous implementation copied
+    // the accumulated property set on every merge, making this O(n^2). With the
+    // in-place merge it stays linear and finishes well within the test timeout.
+    const items = Array.from({ length: 20_000 }, (_, i) => ({ [`k${i}`]: i }));
+
+    const schema = inferSchema(items) as {
+      type: string;
+      items: { type: string; properties: Record<string, object>; required: string[] };
+    };
+
+    expect(schema.type).toBe("array");
+    expect(schema.items.type).toBe("object");
+    expect(Object.keys(schema.items.properties)).toHaveLength(20_000);
+    // No key is present in every object, so none is required.
+    expect(schema.items.required).toEqual([]);
+  });
+
   test("handles deeply nested objects without blowing the call stack", () => {
     let value: unknown = 1;
     for (let i = 0; i < 50_000; i++) {
