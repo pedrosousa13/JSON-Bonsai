@@ -4,6 +4,7 @@ import {
   createBestAvailableTreeSearchIndex,
   createLocalTreeSearchIndex,
 } from "./tree-worker-client";
+import { toJsonSchema } from "./schema";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
@@ -97,6 +98,7 @@ async function init(): Promise<void> {
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
         <button class="jv-view-btn" data-view="raw">Raw</button>
+        <button class="jv-view-btn" data-view="schema">Schema</button>
       </div>
       <span id="jv-render-status"></span>
       <button id="jv-theme-toggle" title="Toggle theme"></button>
@@ -119,6 +121,7 @@ async function init(): Promise<void> {
       <div id="jv-tree"></div>
       <pre id="jv-formatted"></pre>
       <pre id="jv-raw"></pre>
+      <pre id="jv-schema"></pre>
     </div>
   `;
 
@@ -144,6 +147,7 @@ async function init(): Promise<void> {
   const tree = document.getElementById("jv-tree")!;
   const formattedEl = document.getElementById("jv-formatted")!;
   const rawEl = document.getElementById("jv-raw")!;
+  const schemaEl = document.getElementById("jv-schema")!;
   const pathDisplay = document.getElementById("jv-path-display")!;
   const pathText = document.getElementById("jv-path-text")!;
   const pathCopyBtn = document.getElementById("jv-path-copy")!;
@@ -157,7 +161,10 @@ async function init(): Promise<void> {
   const renderStatus = document.getElementById("jv-render-status")!;
   const content = document.getElementById("jv-content")!;
   const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
-  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl };
+  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl, schema: schemaEl };
+  const copyBtn = document.getElementById("jv-copy")!;
+  const copyLabel = copyBtn.querySelector<HTMLElement>(".jv-copy-label")!;
+  const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
   const loadedViews = new Set<string>(["tree"]);
   let currentView = "tree";
   let searchTimer: number | null = null;
@@ -267,14 +274,21 @@ async function init(): Promise<void> {
       formattedEl.textContent = getPrettyRaw();
     } else if (name === "raw") {
       rawEl.textContent = raw;
+    } else if (name === "schema") {
+      schemaEl.textContent = toJsonSchema(data);
     }
 
     loadedViews.add(name);
   }
 
+  function copyLabelText(): string {
+    return currentView === "schema" ? "Copy JSON Schema" : "Copy JSON";
+  }
+
   function setView(name: string) {
     currentView = name;
     ensureViewContent(name);
+    copyLabel.textContent = copyLabelText();
     viewBtns.forEach((btn) => btn.classList.toggle("jv-active", btn.dataset.view === name));
     Object.entries(views).forEach(([key, el]) => {
       el.classList.toggle("jv-active", key === name);
@@ -287,19 +301,19 @@ async function init(): Promise<void> {
   });
 
   // Copy
-  const copyBtn = document.getElementById("jv-copy")!;
-  const copyLabel = copyBtn.querySelector<HTMLElement>(".jv-copy-label")!;
-  const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
-
   function copyJson(): void {
-    const contentToCopy = currentView === "raw" ? raw : getPrettyRaw();
+    const contentToCopy =
+      currentView === "schema"
+        ? schemaEl.textContent!
+        : currentView === "raw"
+          ? raw
+          : getPrettyRaw();
 
     navigator.clipboard.writeText(contentToCopy).then(() => {
-      const orig = copyLabel.textContent;
       copyLabel.textContent = "Copied!";
       copyKbd.classList.add("jv-hidden");
       setTimeout(() => {
-        copyLabel.textContent = orig;
+        copyLabel.textContent = copyLabelText();
         copyKbd.classList.remove("jv-hidden");
       }, 1000);
     });
