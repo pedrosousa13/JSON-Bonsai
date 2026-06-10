@@ -337,7 +337,13 @@ async function init(): Promise<void> {
     return currentView === "schema" ? "Copy JSON Schema" : "Copy JSON";
   }
 
+  // Views share #jv-content as scroll container, so each remembers its own
+  // scroll offset across switches.
+  const viewScrollTops: Record<string, number> = {};
+
   function setView(name: string) {
+    if (name === currentView) return;
+    viewScrollTops[currentView] = content.scrollTop;
     currentView = name;
     ensureViewContent(name);
     copyLabel.textContent = copyLabelText();
@@ -346,8 +352,9 @@ async function init(): Promise<void> {
       el.classList.toggle("jv-active", key === name);
       el.classList.toggle("jv-hidden", key !== name);
     });
-    // The scroll position may have moved while the tree was hidden (window
-    // renders are skipped then), so re-render it on return.
+    content.scrollTop = viewScrollTops[name] ?? 0;
+    // Window renders are skipped while the tree is hidden, so re-render it
+    // for the restored scroll position on return.
     if (name === "tree" && treeMounted) treeView.refresh();
   }
 
