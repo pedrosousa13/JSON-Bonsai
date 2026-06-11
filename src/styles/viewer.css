@@ -451,6 +451,14 @@ html:has(#jv-root) {
   color: var(--number);
 }
 
+/* Numbers whose exact source text is preserved because the parsed JS number
+   would lose precision (64-bit ids, high-precision decimals). */
+.jv-number-exact {
+  text-decoration: underline dotted color-mix(in srgb, var(--number) 60%, transparent);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
 .jv-bool {
   color: var(--bool);
 }

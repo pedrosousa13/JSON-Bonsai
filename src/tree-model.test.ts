@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { buildTreeModel, type JsonValue } from "./tree-model";
+import type { ExactNumberMap } from "./lossless-numbers";
 
 describe("buildTreeModel", () => {
   test("does not overflow the stack on deeply nested JSON", () => {
@@ -42,6 +43,25 @@ describe("buildTreeModel", () => {
         expect(childId).toBeGreaterThan(node.id);
       }
     }
+  });
+
+  test("attaches exact number source text and indexes it for search", () => {
+    // Manual map (rather than parseWithExactNumbers) so the test runs on
+    // engines without JSON.parse source access.
+    const data = { id: 9007199254740992, plain: 1 };
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [data as object, new Map([["id", "9007199254740993"]])],
+    ]);
+
+    const model = buildTreeModel(data, exactNumbers);
+    const idNode = model.nodes[model.pathToId.get("data.id")!];
+    const plainNode = model.nodes[model.pathToId.get("data.plain")!];
+
+    expect(idNode.numberText).toBe("9007199254740993");
+    // Search must find the source digits, not the corrupted parsed value.
+    expect(idNode.searchValue).toBe("9007199254740993");
+    expect(plainNode.numberText).toBe(null);
+    expect(plainNode.searchValue).toBe("1");
   });
 
   test("flags nodes that contain nested containers", () => {

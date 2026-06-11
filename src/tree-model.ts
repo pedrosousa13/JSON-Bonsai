@@ -1,3 +1,5 @@
+import type { ExactNumberMap } from "./lossless-numbers";
+
 export type JsonValue =
   | string
   | number
@@ -24,6 +26,9 @@ export interface JsonNode {
   depth: number;
   type: JsonNodeType;
   value: JsonValue;
+  // Exact source text for numbers JSON.parse couldn't represent losslessly;
+  // null for everything else. Display and copy prefer it over `value`.
+  numberText: string | null;
   isArrayElement: boolean;
   isLast: boolean;
   childCount: number;
@@ -108,6 +113,7 @@ export function isContainerNode(node: JsonNode): boolean {
 
 interface VisitTask {
   value: JsonValue;
+  numberText: string | null;
   parentId: number | null;
   key: string | number | null;
   path: string;
@@ -117,7 +123,10 @@ interface VisitTask {
   siblingIndex: number;
 }
 
-export function buildTreeModel(data: JsonValue): TreeModel {
+export function buildTreeModel(
+  data: JsonValue,
+  exactNumbers?: ExactNumberMap | null
+): TreeModel {
   const nodes: JsonNode[] = [];
   const pathToId = new Map<string, number>();
   let maxDepth = 0;
@@ -130,6 +139,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
   const stack: VisitTask[] = [
     {
       value: data,
+      numberText: null,
       parentId: null,
       key: null,
       path: "data",
@@ -142,11 +152,12 @@ export function buildTreeModel(data: JsonValue): TreeModel {
 
   while (stack.length > 0) {
     const task = stack.pop()!;
-    const { value, parentId, key, path, depth, isArrayElement, isLast, siblingIndex } = task;
+    const { value, numberText, parentId, key, path, depth, isArrayElement, isLast, siblingIndex } = task;
     const type = typeOf(value);
     const childCount = countEntries(value);
     const label = buildLabel(type, childCount);
-    const { searchValue, hasLongSearchValue } = buildSearchValue(value);
+    // Index the exact source text so searching for the real digits matches.
+    const { searchValue, hasLongSearchValue } = buildSearchValue(numberText ?? value);
 
     const node: JsonNode = {
       id: nodes.length,
@@ -158,6 +169,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
       depth,
       type,
       value,
+      numberText,
       isArrayElement,
       isLast,
       childCount,
@@ -178,10 +190,15 @@ export function buildTreeModel(data: JsonValue): TreeModel {
       nodes[parentId].childIds.push(node.id);
     }
 
+    // Reviver keys are strings (array indices included), hence String(key).
+    const holderExactNumbers =
+      childCount > 0 ? exactNumbers?.get(value as object) : undefined;
+
     if (Array.isArray(value)) {
       for (let index = value.length - 1; index >= 0; index--) {
         stack.push({
           value: value[index],
+          numberText: holderExactNumbers?.get(String(index)) ?? null,
           parentId: node.id,
           key: index,
           path: buildPath(path, index, true),
@@ -197,6 +214,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
         const childKey = keys[index];
         stack.push({
           value: value[childKey],
+          numberText: holderExactNumbers?.get(childKey) ?? null,
           parentId: node.id,
           key: childKey,
           path: buildPath(path, childKey, false),
