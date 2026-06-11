@@ -392,8 +392,13 @@ async function init(): Promise<void> {
 
   // Restore this origin's saved view before the tree mounts so the default
   // view never flashes. Rendering skips while the tree is hidden; setView
-  // refreshes it on the way back.
-  if (originPrefs.view !== undefined && originPrefs.view in views) {
+  // refreshes it on the way back. A saved "table" only applies if this
+  // document is tabular — the same origin can serve non-array payloads.
+  if (
+    originPrefs.view !== undefined &&
+    originPrefs.view in views &&
+    (originPrefs.view !== "table" || checkTableEligibility(data).eligible)
+  ) {
     setView(originPrefs.view);
   }
 
