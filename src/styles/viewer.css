@@ -281,6 +281,7 @@ html:has(#jv-root) {
 }
 
 #jv-tree,
+#jv-table,
 #jv-formatted,
 #jv-raw,
 #jv-schema {
@@ -291,7 +292,8 @@ html:has(#jv-root) {
   line-height: inherit;
 }
 
-#jv-tree {
+#jv-tree,
+#jv-table {
   position: relative;
   white-space: nowrap;
 }
@@ -474,6 +476,116 @@ html:has(#jv-root) {
   color: var(--punctuation);
 }
 
+.jv-table-note {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.jv-table-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: var(--jv-table-cols);
+  width: max-content;
+  min-width: 100%;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.jv-table-th {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--key);
+  cursor: pointer;
+}
+
+.jv-table-th:hover {
+  background: var(--bg-hover);
+}
+
+.jv-table-th.jv-table-index {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.jv-table-th.jv-table-index:hover {
+  background: none;
+}
+
+.jv-table-th-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jv-table-th.jv-table-sorted {
+  color: var(--accent);
+}
+
+.jv-table-sort {
+  font-size: 9px;
+  color: var(--accent);
+}
+
+.jv-table-body {
+  position: relative;
+}
+
+.jv-table-spacer {
+  width: 1px;
+  opacity: 0;
+}
+
+.jv-table-rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.jv-table-row {
+  display: grid;
+  grid-template-columns: var(--jv-table-cols);
+  width: max-content;
+  min-width: 100%;
+  height: 24px;
+  line-height: 24px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.jv-table-row:hover {
+  background: var(--bg-hover);
+}
+
+.jv-table-cell {
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.jv-table-cell.jv-string {
+  /* .jv-string sets text-wrap: auto for the tree; table cells never wrap. */
+  white-space: nowrap;
+}
+
+.jv-table-cell.jv-table-index {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.jv-table-cell.jv-table-missing {
+  color: var(--text-muted);
+}
+
 #jv-path-display {
   position: fixed;
   left: 16px;
@@ -553,18 +665,21 @@ html:has(#jv-root) {
 }
 
 #jv-tree.jv-hidden,
+#jv-table.jv-hidden,
 #jv-formatted.jv-hidden,
 #jv-raw.jv-hidden,
 #jv-schema.jv-hidden {
   display: none;
 }
 
+#jv-table,
 #jv-formatted,
 #jv-raw,
 #jv-schema {
   display: none;
 }
 
+#jv-table.jv-active,
 #jv-formatted.jv-active,
 #jv-raw.jv-active,
 #jv-schema.jv-active {
