@@ -16,6 +16,11 @@ import {
   type ThemeMode,
 } from "./themes";
 import { runQuery } from "./query";
+import {
+  createOriginPrefsWriter,
+  loadOriginPrefs,
+  type OriginPrefs,
+} from "./prefs";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
@@ -164,6 +169,8 @@ async function init(): Promise<void> {
   `;
 
   const themeState = await loadThemeState();
+  const originPrefs = await loadOriginPrefs(location.origin);
+  const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
   const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
 
   function allSchemes(): Base16Scheme[] {
@@ -235,6 +242,9 @@ async function init(): Promise<void> {
   const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
   const loadedViews = new Set<string>(["tree"]);
   let currentView = "tree";
+  // Views share #jv-content as scroll container, so each remembers its own
+  // scroll offset across switches.
+  const viewScrollTops: Record<string, number> = {};
   let searchTimer: number | null = null;
   let activeQueryResult: { expression: string; result: JsonValue } | null = null;
 
@@ -248,7 +258,15 @@ async function init(): Promise<void> {
   let resultSearchIndex: TreeSearchIndex | null = null;
   // Last level button the user picked on the original tree ("all" = expand
   // all), so restoring after a query puts the depth back where they left it.
-  let originalLevelSelection: number | "all" | null = null;
+  // Seeded from this origin's saved prefs.
+  let originalLevelSelection: number | "all" | null = originPrefs.level ?? null;
+
+  // Persists the current view and last explicit level pick for this origin.
+  function persistOriginPrefs(): void {
+    const prefs: OriginPrefs = { view: currentView };
+    if (originalLevelSelection !== null) prefs.level = originalLevelSelection;
+    saveOriginPrefs(prefs);
+  }
 
   function createSearchIndexFor(treeModel: TreeModel): TreeSearchIndex {
     return typeof Worker === "function"
@@ -303,7 +321,10 @@ async function init(): Promise<void> {
       btn.addEventListener("click", () => {
         void treeView.collapseToLevel(i);
         setActiveLevel(btn);
-        if (activeQueryResult === null) originalLevelSelection = i;
+        if (activeQueryResult === null) {
+          originalLevelSelection = i;
+          persistOriginPrefs();
+        }
       });
       levelsContainer.appendChild(btn);
     }
@@ -315,7 +336,10 @@ async function init(): Promise<void> {
     allBtn.addEventListener("click", () => {
       void treeView.expandAll();
       setActiveLevel(allBtn);
-      if (activeQueryResult === null) originalLevelSelection = "all";
+      if (activeQueryResult === null) {
+        originalLevelSelection = "all";
+        persistOriginPrefs();
+      }
     });
     levelsContainer.appendChild(allBtn);
     if (initialExpansionDepth !== null) {
@@ -340,8 +364,32 @@ async function init(): Promise<void> {
     active.classList.add("jv-active");
   }
 
+  // Applies a level selection through its button so depth, active state and
+  // persistence all go through the one code path. No-op when the document is
+  // shallower than the saved level.
+  function clickLevelSelection(selection: number | "all"): void {
+    const btn =
+      selection === "all"
+        ? levelsContainer.querySelector<HTMLButtonElement>('button[data-action="expand-all"]')
+        : levelsContainer.querySelector<HTMLButtonElement>(
+            `button[data-level="${selection}"]`
+          );
+    btn?.click();
+  }
+
+  // Restore this origin's saved view before the tree mounts so the default
+  // view never flashes. Rendering skips while the tree is hidden; setView
+  // refreshes it on the way back.
+  if (originPrefs.view !== undefined && originPrefs.view in views) {
+    setView(originPrefs.view);
+  }
+
   originalSearchIndex = createSearchIndexFor(model);
   await mountTree(model, originalSearchIndex);
+
+  // Reapply this origin's saved depth (skipping the write — the payload
+  // matches what was just loaded).
+  if (originPrefs.level !== undefined) clickLevelSelection(originPrefs.level);
 
   tree.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
@@ -395,10 +443,6 @@ async function init(): Promise<void> {
     return currentView === "schema" ? "Copy JSON Schema" : "Copy JSON";
   }
 
-  // Views share #jv-content as scroll container, so each remembers its own
-  // scroll offset across switches.
-  const viewScrollTops: Record<string, number> = {};
-
   function setView(name: string) {
     if (name === currentView) return;
     viewScrollTops[currentView] = content.scrollTop;
@@ -414,6 +458,7 @@ async function init(): Promise<void> {
     // Window renders are skipped while the tree is hidden, so re-render it
     // for the restored scroll position on return.
     if (name === "tree" && treeMounted) treeView.refresh();
+    persistOriginPrefs();
   }
 
   viewBtns.forEach((btn) => {
@@ -623,15 +668,7 @@ async function init(): Promise<void> {
     await mountTree(model, originalSearchIndex!);
 
     // Put the depth back where the user had it before the query.
-    if (originalLevelSelection !== null) {
-      const btn =
-        originalLevelSelection === "all"
-          ? levelsContainer.querySelector<HTMLButtonElement>('button[data-action="expand-all"]')
-          : levelsContainer.querySelector<HTMLButtonElement>(
-              `button[data-level="${originalLevelSelection}"]`
-            );
-      btn?.click();
-    }
+    if (originalLevelSelection !== null) clickLevelSelection(originalLevelSelection);
   }
 
   async function runQueryExpression(): Promise<void> {
