@@ -15,7 +15,8 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 - Virtualized tree rendering — smooth scrolling and interaction on 100k+ node payloads
 - JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree
 - Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`)
-- Four view modes: Tree, Formatted, Raw, and Schema (inferred JSON Schema, draft-07)
+- Five view modes: Tree, Table, Formatted, Raw, and Schema (inferred JSON Schema, draft-07)
+- Table view for arrays of objects — sortable columns, virtualized rows, works on query results too
 - Syntax highlighting for keys, strings, numbers, booleans, and null; URLs become clickable links
 - Collapsible/expandable tree view with level controls — press `1`–`8` to set depth, `0` to expand all
 - Hover any property to see its full JSON path — click to pin, then copy
@@ -77,7 +78,7 @@ After making changes, reload the extension in your browser.
 Navigate to any URL that returns JSON (e.g. `https://jsonplaceholder.typicode.com/users`). The extension automatically detects JSON responses and replaces the page with an interactive viewer.
 
 - **Level buttons** (1, 2, 3... All) — collapse/expand the tree to a specific depth
-- **View picker** (Tree / Formatted / Raw / Schema) — switch between interactive tree, pretty-printed JSON, raw JSON, and an inferred JSON Schema
+- **View picker** (Tree / Table / Formatted / Raw / Schema) — switch between interactive tree, sortable table (enabled when the root is an array of objects), pretty-printed JSON, raw JSON, and an inferred JSON Schema
 - **Query** (ƒ or `Q`) — run a [JMESPath](https://jmespath.org) expression, e.g. `items[?price > \`10\`].name`; the result replaces the tree, ✕ on the chip restores the document
 - **Search** (⌕ or `⌘F`) — find keys, values, and paths; `Enter` / `Shift+Enter` step through matches
 - **Theme toggle** — cycle the theme mode between auto (◐), dark (☾), and light (☀)
