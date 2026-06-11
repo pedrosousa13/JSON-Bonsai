@@ -127,7 +127,13 @@ function createPoolRow(): PoolRow {
 const URL_DETECT_MAX = 512;
 const STRING_DISPLAY_MAX = 500;
 
-function applyLeafValue(span: HTMLSpanElement, value: JsonValue): void {
+function applyLeafValue(
+  span: HTMLSpanElement,
+  value: JsonValue,
+  numberText: string | null
+): void {
+  // Pooled rows get reused across nodes; drop a previous exact-number tooltip.
+  if (span.title !== "") span.removeAttribute("title");
   if (typeof value === "string") {
     span.className = "jv-string";
     if (value.length < URL_DETECT_MAX && URL_PATTERN.test(value)) {
@@ -146,8 +152,15 @@ function applyLeafValue(span: HTMLSpanElement, value: JsonValue): void {
     return;
   }
   if (typeof value === "number") {
-    span.className = "jv-number";
-    span.textContent = String(value);
+    if (numberText !== null) {
+      // Show the exact source token instead of the corrupted parsed value.
+      span.className = "jv-number jv-number-exact";
+      span.textContent = numberText;
+      span.title = "Exact value preserved; JS number would lose precision";
+    } else {
+      span.className = "jv-number";
+      span.textContent = String(value);
+    }
     return;
   }
   if (typeof value === "boolean") {
@@ -220,7 +233,7 @@ function applyPoolRow(row: PoolRow, node: JsonNode, isExpanded: boolean): void {
   } else {
     row.preview.hidden = true;
     row.leaf.hidden = false;
-    applyLeafValue(row.leafValue, node.value);
+    applyLeafValue(row.leafValue, node.value, node.numberText);
     row.leafComma.textContent = comma;
   }
 
@@ -248,6 +261,7 @@ export interface TreeViewController {
   getStats: () => { maxDepth: number; totalNodes: number };
   getNodePath: (nodeId: number) => string;
   getNodeValue: (nodeId: number) => JsonValue;
+  getNodeNumberText: (nodeId: number) => string | null;
   getAncestorIds: (nodeId: number) => number[];
   getRowElement: (nodeId: number) => HTMLElement | null;
   refresh: () => void;
@@ -815,6 +829,10 @@ export function createTreeView(
 
     getNodeValue(nodeId: number): JsonValue {
       return model.nodes[nodeId].value;
+    },
+
+    getNodeNumberText(nodeId: number): string | null {
+      return model.nodes[nodeId].numberText;
     },
 
     getAncestorIds,

@@ -3,6 +3,7 @@
 import { describe, expect, test } from "vitest";
 
 import { buildTreeModel } from "./tree-model";
+import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
 import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-worker-client";
 import { runQuery } from "./query";
@@ -378,6 +379,40 @@ describe("createTreeView", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(scrollContainer.scrollTop).toBe(999999);
+  });
+
+  test("renders preserved exact numbers with badge class and tooltip", async () => {
+    const container = createContainer();
+    // Manual map (rather than parseWithExactNumbers) so the test runs on
+    // engines without JSON.parse source access.
+    const data = { big: 9007199254740992, small: 1 };
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [data as object, new Map([["big", "9007199254740993"]])],
+    ]);
+    const model = buildTreeModel(data, exactNumbers);
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    const bigValue = container
+      .querySelector<HTMLElement>('[data-path="data.big"]')!
+      .querySelector<HTMLElement>(".jv-number")!;
+    expect(bigValue.classList.contains("jv-number-exact")).toBe(true);
+    expect(bigValue.textContent).toBe("9007199254740993");
+    expect(bigValue.title).toContain("Exact value preserved");
+
+    const smallValue = container
+      .querySelector<HTMLElement>('[data-path="data.small"]')!
+      .querySelector<HTMLElement>(".jv-number")!;
+    expect(smallValue.classList.contains("jv-number-exact")).toBe(false);
+    expect(smallValue.textContent).toBe("1");
+    expect(smallValue.title).toBe("");
+
+    // Copy actions read the exact source through this accessor.
+    expect(treeView.getNodeNumberText(model.pathToId.get("data.big")!)).toBe(
+      "9007199254740993"
+    );
+    expect(treeView.getNodeNumberText(model.pathToId.get("data.small")!)).toBe(null);
   });
 
   test("expandAll keeps DOM windowed at any size", async () => {

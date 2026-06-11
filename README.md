@@ -18,6 +18,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 - Five view modes: Tree, Table, Formatted, Raw, and Schema (inferred JSON Schema, draft-07)
 - Table view for arrays of objects — sortable columns, virtualized rows, works on query results too
 - Syntax highlighting for keys, strings, numbers, booleans, and null; URLs become clickable links
+- Lossless big numbers — 64-bit IDs and high-precision decimals display and copy exactly as sent, where `JSON.parse` would silently corrupt them
 - Collapsible/expandable tree view with level controls — press `1`–`8` to set depth, `0` to expand all
 - Hover any property to see its full JSON path — click to pin, then copy
 - Per-node actions: copy any subtree's value, expand/collapse all children

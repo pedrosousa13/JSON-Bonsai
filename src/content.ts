@@ -26,12 +26,21 @@ import {
   createTableView,
   type TableViewController,
 } from "./table";
+import {
+  parseWithExactNumbers,
+  stringifyWithExactNumbers,
+  type ExactNumberMap,
+} from "./lossless-numbers";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
 const LARGE_TREE_INITIAL_EXPANSION_DEPTH = 2;
 
-function detectJSON(): { data: JsonValue; raw: string } | null {
+function detectJSON(): {
+  data: JsonValue;
+  raw: string;
+  exactNumbers: ExactNumberMap | null;
+} | null {
   const pre = document.querySelector("body > pre");
   const isPlainBody =
     document.body.children.length === 1 && pre instanceof HTMLPreElement;
@@ -43,9 +52,9 @@ function detectJSON(): { data: JsonValue; raw: string } | null {
   if (!raw) return null;
 
   try {
-    const data = JSON.parse(raw) as JsonValue;
+    const { data, exactNumbers } = parseWithExactNumbers(raw);
     if (data === null || typeof data !== "object") return null;
-    return { data, raw };
+    return { data, raw, exactNumbers };
   } catch {
     return null;
   }
@@ -101,12 +110,12 @@ async function init(): Promise<void> {
   const result = detectJSON();
   if (!result) return;
 
-  const { data, raw } = result;
+  const { data, raw, exactNumbers } = result;
   let prettyRaw: string | null = null;
 
   function getPrettyRaw(): string {
     if (prettyRaw === null) {
-      prettyRaw = JSON.stringify(data, null, 2);
+      prettyRaw = stringifyWithExactNumbers(data, exactNumbers, 2);
     }
     return prettyRaw;
   }
@@ -262,7 +271,7 @@ async function init(): Promise<void> {
   }
 
   renderStatus.textContent = "Indexing JSON...";
-  const model = buildTreeModel(data);
+  const model = buildTreeModel(data, exactNumbers);
   let treeView!: TreeViewController;
   let treeMounted = false;
   // The original document's index lives for the whole page so swapping to a
@@ -432,8 +441,14 @@ async function init(): Promise<void> {
       const line = target.closest<HTMLElement>(".jv-line");
       if (!line) return;
 
-      const selectedValue = treeView.getNodeValue(Number(line.dataset.nodeId));
-      navigator.clipboard.writeText(JSON.stringify(selectedValue, null, 2));
+      const nodeId = Number(line.dataset.nodeId);
+      // Exact source text for precision-lossy numbers; containers keep their
+      // preserved descendants too since they share holders with `data`.
+      const selectedValue = treeView.getNodeValue(nodeId);
+      navigator.clipboard.writeText(
+        treeView.getNodeNumberText(nodeId) ??
+          stringifyWithExactNumbers(selectedValue, exactNumbers, 2)
+      );
 
       const originalLabel = target.textContent;
       target.textContent = "copied!";
@@ -527,7 +542,7 @@ async function init(): Promise<void> {
           ? raw
           : (currentView === "tree" || currentView === "table") &&
               activeQueryResult !== null
-            ? JSON.stringify(activeQueryResult.result, null, 2)
+            ? stringifyWithExactNumbers(activeQueryResult.result, exactNumbers, 2)
             : getPrettyRaw();
 
     navigator.clipboard.writeText(contentToCopy).then(() => {
@@ -744,7 +759,9 @@ async function init(): Promise<void> {
     activeQueryResult = { expression, result: outcome.result };
     queryChipText.textContent = `query: ${expression}`;
     queryChip.hidden = false;
-    const resultModel = buildTreeModel(outcome.result);
+    // Query results reuse holders from `data` where JMESPath passed them
+    // through, so preserved numbers survive in unprojected subtrees.
+    const resultModel = buildTreeModel(outcome.result, exactNumbers);
     resultSearchIndex?.dispose();
     resultSearchIndex = createSearchIndexFor(resultModel);
     await mountTree(resultModel, resultSearchIndex);
