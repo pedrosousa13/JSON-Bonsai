@@ -171,6 +171,113 @@ describe("createTableView", () => {
   });
 });
 
+describe("table filter", () => {
+  function visibleRows(container: HTMLElement): HTMLElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(".jv-table-row:not([hidden])")
+    );
+  }
+
+  function visibleCellTexts(container: HTMLElement, column: number): string[] {
+    return visibleRows(container).map(
+      (row) => row.querySelectorAll(".jv-table-cell")[column].textContent!
+    );
+  }
+
+  test("narrows rows to matching cell values, case-insensitively", () => {
+    const container = createContainer();
+    const view = createTableView(container, [
+      { name: "Ada", age: 36 },
+      { name: "Grace", age: 45 },
+      { name: "Alan", age: 33 },
+    ]);
+
+    const state = view.setFilter("ADA");
+    expect(state).toEqual({ query: "ada", shown: 1, total: 3 });
+    expect(visibleCellTexts(container, 1)).toEqual(["Ada"]);
+  });
+
+  test("matches column key names for rows that have the key", () => {
+    const container = createContainer();
+    const view = createTableView(container, [
+      { name: "Ada", city: "London" },
+      { name: "Grace" },
+    ]);
+
+    const state = view.setFilter("city");
+    expect(state.shown).toBe(1);
+    expect(visibleCellTexts(container, 1)).toEqual(["Ada"]);
+
+    // The header explains the key match; the value cell itself didn't match.
+    const th = container.querySelector('.jv-table-th[data-column="city"]')!;
+    expect(th.className).toContain("jv-search-match");
+    const cityCell = visibleRows(container)[0].querySelectorAll(".jv-table-cell")[2];
+    expect(cityCell.className).not.toContain("jv-search-match");
+  });
+
+  test("highlights matching cells and clears on filter clear", () => {
+    const container = createContainer();
+    const view = createTableView(container, [
+      { name: "Ada", role: "admin" },
+      { name: "Grace", role: "user" },
+    ]);
+
+    view.setFilter("ad");
+    const cells = visibleRows(container)[0].querySelectorAll(".jv-table-cell");
+    expect(cells[1].className).toContain("jv-search-match"); // "Ada"
+    expect(cells[2].className).toContain("jv-search-match"); // "admin"
+
+    const cleared = view.setFilter("");
+    expect(cleared).toEqual({ query: "", shown: 2, total: 2 });
+    expect(visibleRows(container)).toHaveLength(2);
+    for (const cell of container.querySelectorAll(".jv-table-cell")) {
+      expect(cell.className).not.toContain("jv-search-match");
+    }
+  });
+
+  test("preserves the active sort through filter and clear", () => {
+    const container = createContainer();
+    const view = createTableView(container, [
+      { n: 3 },
+      { n: 10 },
+      { n: 1 },
+      { n: 2 },
+    ]);
+
+    container.querySelector<HTMLElement>('.jv-table-th[data-column="n"]')!.click();
+    expect(visibleCellTexts(container, 1)).toEqual(["1", "2", "3", "10"]);
+
+    // "1" matches 1 and 10; the ascending order survives the filter.
+    view.setFilter("1");
+    expect(visibleCellTexts(container, 1)).toEqual(["1", "10"]);
+
+    // Sorting while filtered re-orders the filtered subset.
+    container.querySelector<HTMLElement>('.jv-table-th[data-column="n"]')!.click();
+    expect(visibleCellTexts(container, 1)).toEqual(["10", "1"]);
+
+    // Clearing restores all rows, still in the active (descending) sort.
+    view.setFilter("");
+    expect(visibleCellTexts(container, 1)).toEqual(["10", "3", "2", "1"]);
+  });
+
+  test("renders and matches the exact source text of imprecise numbers", () => {
+    const container = createContainer();
+    const row = { big: 123456789012345678901234567890 };
+    const exactNumbers = new WeakMap<object, Map<string, string>>();
+    exactNumbers.set(row, new Map([["big", "123456789012345678901234567890"]]));
+    const view = createTableView(container, [row], { exactNumbers });
+
+    expect(visibleCellTexts(container, 1)).toEqual([
+      "123456789012345678901234567890",
+    ]);
+
+    // Matches the displayed source text...
+    expect(view.setFilter("67890123").shown).toBe(1);
+    // ...not the lossy double's stringification ("1.2345678901234568e+29").
+    expect(view.setFilter("e+29").shown).toBe(0);
+  });
+});
+
 describe("query swap re-evaluation", () => {
   test("eligibility flips as JMESPath results swap the document", () => {
     const data: JsonValue = {

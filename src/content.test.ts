@@ -54,6 +54,80 @@ test("each view keeps its own scroll position across switches", async () => {
   expect(content.scrollTop).toBe(4000);
 });
 
+test("search filters table rows and follows view switches", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: Record<string, string>) => query),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  const rows = [
+    { name: "Ada", role: "admin" },
+    { name: "Grace", role: "user" },
+    { name: "Alan", role: "user" },
+  ];
+  document.body.innerHTML = `<pre>${JSON.stringify(rows)}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchStatus = document.getElementById("jv-search-status")!;
+  const tableEl = document.getElementById("jv-table")!;
+  const treeBtn = document.querySelector<HTMLElement>('.jv-view-btn[data-view="tree"]')!;
+  const tableBtn = document.querySelector<HTMLElement>('.jv-view-btn[data-view="table"]')!;
+  const visibleTableRows = () =>
+    tableEl.querySelectorAll(".jv-table-row:not([hidden])");
+
+  async function type(query: string): Promise<void> {
+    searchInput.value = query;
+    searchInput.dispatchEvent(new Event("input"));
+    // Outlast the 180ms debounce plus the async search itself.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  // Search the tree first: tree-style match counter.
+  document.getElementById("jv-search-toggle")!.click();
+  await type("grace");
+  expect(searchStatus.textContent).toBe("1 of 1");
+
+  // Switching to the table turns the open search into a row filter.
+  tableBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(searchStatus.textContent).toBe("1 of 3 rows");
+  expect(visibleTableRows()).toHaveLength(1);
+  expect(visibleTableRows()[0].textContent).toContain("Grace");
+
+  // Typing while the table is active narrows the rows, not the tree.
+  await type("user");
+  expect(searchStatus.textContent).toBe("2 of 3 rows");
+  expect(visibleTableRows()).toHaveLength(2);
+
+  // Back to the tree: the query typed in the meantime is committed there.
+  treeBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(searchStatus.textContent).toBe("1 of 2");
+  expect(document.querySelectorAll("#jv-tree .jv-search-match").length).toBeGreaterThan(0);
+
+  // Closing the search restores every table row.
+  tableBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  document.getElementById("jv-search-clear")!.click();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(searchStatus.textContent).toBe("");
+  expect(visibleTableRows()).toHaveLength(3);
+});
+
 test("restores this origin's saved view and level on load", async () => {
   vi.resetModules();
   const store: Record<string, unknown> = {

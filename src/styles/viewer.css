@@ -429,7 +429,9 @@ html:has(#jv-root) {
   color: var(--text);
 }
 
-.jv-line.jv-search-match {
+.jv-line.jv-search-match,
+.jv-table-cell.jv-search-match,
+.jv-table-th.jv-search-match {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 

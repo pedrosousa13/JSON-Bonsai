@@ -1,4 +1,5 @@
 import type { JsonValue } from "./tree-model";
+import type { ExactNumberMap } from "./lossless-numbers";
 
 export const TABLE_OBJECT_RATIO = 0.8;
 export const TABLE_COLUMN_CAP = 30;
@@ -131,12 +132,15 @@ function containerPreview(value: JsonValue[] | { [key: string]: JsonValue }): st
   return n === 0 ? "{}" : `{ ${n} key${n === 1 ? "" : "s"} }`;
 }
 
+function truncateCell(text: string): string {
+  return text.length > CELL_TEXT_MAX ? `${text.slice(0, CELL_TEXT_MAX)}…` : text;
+}
+
 function cellText(value: JsonValue | undefined): string {
   if (value === undefined) return "–";
   if (value === null) return "null";
   if (typeof value === "object") return containerPreview(value);
-  const text = String(value);
-  return text.length > CELL_TEXT_MAX ? `${text.slice(0, CELL_TEXT_MAX)}…` : text;
+  return truncateCell(String(value));
 }
 
 function cellClass(value: JsonValue | undefined): string {
@@ -182,17 +186,26 @@ interface TablePoolRow {
   lastRowIndex: number;
 }
 
+export interface TableFilterState {
+  query: string;
+  shown: number;
+  total: number;
+}
+
 export interface TableViewController {
   refresh: () => void;
+  setFilter: (query: string) => TableFilterState;
+  getFilterState: () => TableFilterState;
   dispose: () => void;
 }
 
 export function createTableView(
   container: HTMLElement,
   data: JsonValue[],
-  options?: { scrollContainer?: HTMLElement }
+  options?: { scrollContainer?: HTMLElement; exactNumbers?: ExactNumberMap | null }
 ): TableViewController {
   const scrollContainer = options?.scrollContainer ?? container;
+  const exactNumbers = options?.exactNumbers ?? null;
   const { columns, truncatedFrom } = deriveColumns(data);
 
   container.innerHTML = "";
@@ -243,10 +256,79 @@ export function createTableView(
 
   let sortColumn: string | null = null;
   let sortDirection: SortDirection = null;
-  let order = sortRowIndices(data, null, null);
+  // `baseOrder` is the sorted index array; `order` is what renders — the same
+  // array, or its filtered subset while a search query is active.
+  let baseOrder = sortRowIndices(data, null, null);
+  let order = baseOrder;
+  let filterQuery = "";
+  let matchedColumns = new Set<number>();
+  // Lowercased untruncated cell text per row, built lazily on first filter.
+  // Object rows hold one entry per column ("" = key absent); non-object rows
+  // hold the single value they display in the first column.
+  let searchTexts: Array<string[] | string> | null = null;
   let renderScheduled = false;
 
   const rowPool: TablePoolRow[] = [];
+
+  function exactNumberText(holder: object, key: string, value: JsonValue): string | undefined {
+    return typeof value === "number"
+      ? exactNumbers?.get(holder)?.get(key)
+      : undefined;
+  }
+
+  function displayText(holder: object, key: string, value: JsonValue | undefined): string {
+    if (value === undefined) return "–";
+    const exact = exactNumberText(holder, key, value);
+    return exact !== undefined ? truncateCell(exact) : cellText(value);
+  }
+
+  function searchTextFor(holder: object, key: string, value: JsonValue): string {
+    const exact = exactNumberText(holder, key, value);
+    if (exact !== undefined) return exact.toLowerCase();
+    if (value === null) return "null";
+    if (typeof value === "object") return containerPreview(value).toLowerCase();
+    return String(value).toLowerCase();
+  }
+
+  function buildSearchTexts(): Array<string[] | string> {
+    const texts: Array<string[] | string> = new Array(data.length);
+    for (let i = 0; i < data.length; i += 1) {
+      const row = data[i];
+      if (!isPlainObject(row)) {
+        texts[i] = searchTextFor(data, String(i), row);
+        continue;
+      }
+      const rowTexts = new Array<string>(columns.length);
+      for (let c = 0; c < columns.length; c += 1) {
+        const value = row[columns[c]];
+        rowTexts[c] = value === undefined ? "" : searchTextFor(row, columns[c], value);
+      }
+      texts[i] = rowTexts;
+    }
+    return texts;
+  }
+
+  // A row matches when any present cell's text contains the query, or a
+  // matching column name has a value in that row (same case-insensitive
+  // substring semantics as tree search).
+  function rowMatches(rowIndex: number): boolean {
+    const texts = searchTexts![rowIndex];
+    if (typeof texts === "string") return texts.includes(filterQuery);
+    for (let c = 0; c < texts.length; c += 1) {
+      if (texts[c] === "") continue;
+      if (matchedColumns.has(c) || texts[c].includes(filterQuery)) return true;
+    }
+    return false;
+  }
+
+  function cellTextMatches(rowIndex: number, columnIndex: number): boolean {
+    if (filterQuery === "") return false;
+    const texts = searchTexts![rowIndex];
+    if (typeof texts === "string") {
+      return columnIndex === 0 && texts.includes(filterQuery);
+    }
+    return texts[columnIndex] !== "" && texts[columnIndex].includes(filterQuery);
+  }
 
   function createPoolRow(): TablePoolRow {
     const line = document.createElement("div");
@@ -283,8 +365,8 @@ export function createTableView(
       for (let c = 0; c < columns.length; c += 1) {
         const cell = poolRow.cells[c];
         if (c === 0) {
-          cell.className = cellClass(row);
-          cell.textContent = cellText(row);
+          cell.className = cellMatchClass(cellClass(row), rowIndex, 0);
+          cell.textContent = displayText(data, String(rowIndex), row);
         } else {
           cell.className = "jv-table-cell jv-table-missing";
           cell.textContent = "–";
@@ -295,9 +377,13 @@ export function createTableView(
     for (let c = 0; c < columns.length; c += 1) {
       const cell = poolRow.cells[c];
       const value = row[columns[c]];
-      cell.className = cellClass(value);
-      cell.textContent = value === undefined ? "–" : cellText(value);
+      cell.className = cellMatchClass(cellClass(value), rowIndex, c);
+      cell.textContent = displayText(row, columns[c], value);
     }
+  }
+
+  function cellMatchClass(base: string, rowIndex: number, columnIndex: number): string {
+    return cellTextMatches(rowIndex, columnIndex) ? `${base} jv-search-match` : base;
   }
 
   function renderWindow(): void {
@@ -377,11 +463,36 @@ export function createTableView(
       sortColumn = column;
       sortDirection = "asc";
     }
-    order = sortRowIndices(data, sortColumn, sortDirection);
+    baseOrder = sortRowIndices(data, sortColumn, sortDirection);
     updateSortIndicators();
+    applyFilter();
+  });
+
+  // Recomputes `order` from `baseOrder` and the active query, syncs header
+  // highlights, and re-renders. Sorting and filtering both funnel through
+  // here so each survives the other.
+  function applyFilter(): void {
+    if (filterQuery === "") {
+      matchedColumns = new Set();
+      order = baseOrder;
+    } else {
+      if (searchTexts === null) searchTexts = buildSearchTexts();
+      matchedColumns = new Set<number>();
+      for (let c = 0; c < columns.length; c += 1) {
+        if (columns[c].toLowerCase().includes(filterQuery)) matchedColumns.add(c);
+      }
+      order = baseOrder.filter(rowMatches);
+    }
+    for (let c = 0; c < headerCells.length; c += 1) {
+      headerCells[c].classList.toggle("jv-search-match", matchedColumns.has(c));
+    }
     invalidatePool();
     renderWindow();
-  });
+  }
+
+  function currentFilterState(): TableFilterState {
+    return { query: filterQuery, shown: order.length, total: data.length };
+  }
 
   function onScroll(): void {
     scheduleWindowRender();
@@ -393,6 +504,22 @@ export function createTableView(
   return {
     refresh(): void {
       scheduleWindowRender();
+    },
+    setFilter(query: string): TableFilterState {
+      const normalized = query.trim().toLowerCase();
+      if (normalized !== filterQuery) {
+        filterQuery = normalized;
+        // New result set: start from the top. Skipped while hidden so a
+        // filter applied in the background never moves another view's scroll.
+        if (!container.classList.contains("jv-hidden")) {
+          scrollContainer.scrollTop = 0;
+        }
+        applyFilter();
+      }
+      return currentFilterState();
+    },
+    getFilterState(): TableFilterState {
+      return currentFilterState();
     },
     dispose(): void {
       scrollContainer.removeEventListener("scroll", onScroll);

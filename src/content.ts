@@ -248,6 +248,9 @@ async function init(): Promise<void> {
   const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
   const searchNextBtn = document.getElementById("jv-search-next") as HTMLButtonElement;
   const searchClearBtn = document.getElementById("jv-search-clear") as HTMLButtonElement;
+  // Grabbed early: setView runs before the search wiring below and checks
+  // whether the panel is open.
+  const searchPanel = document.getElementById("jv-search-panel")!;
   const info = document.getElementById("jv-info")!;
   const levelsContainer = document.getElementById("jv-levels")!;
   const renderStatus = document.getElementById("jv-render-status")!;
@@ -465,6 +468,7 @@ async function init(): Promise<void> {
       tableView?.dispose();
       tableView = createTableView(tableEl, currentDocument() as JsonValue[], {
         scrollContainer: content,
+        exactNumbers,
       });
     } else if (name === "formatted") {
       formattedEl.textContent = getPrettyRaw();
@@ -497,6 +501,21 @@ async function init(): Promise<void> {
     // for the restored scroll position on return. Same for the table.
     if (name === "tree" && treeMounted) treeView.refresh();
     if (name === "table") tableView?.refresh();
+    // An open search follows the active view: the table filters on whatever
+    // is typed, and the tree re-syncs its matches if the query changed while
+    // it was hidden. (setFilter/commitSearch no-op on an unchanged query.)
+    if (!searchPanel.hidden) {
+      if (name === "table" && tableView !== null) {
+        tableView.setFilter(searchInput.value);
+        updateSearchUi();
+      } else if (name === "tree" && treeMounted) {
+        if (searchInput.value !== treeView.getSearchState().query) {
+          void commitSearch(searchInput.value);
+        } else {
+          updateSearchUi();
+        }
+      }
+    }
     persistOriginPrefs();
   }
 
@@ -528,6 +547,9 @@ async function init(): Promise<void> {
     } else {
       content.scrollTop = 0;
       ensureViewContent("table");
+      // The rebuilt table starts unfiltered and mountTree cleared the input;
+      // refresh the status so no stale row count lingers.
+      updateSearchUi();
     }
   }
 
@@ -558,6 +580,19 @@ async function init(): Promise<void> {
   copyBtn.addEventListener("click", copyJson);
 
   function updateSearchUi() {
+    // Table search is a row filter, not match-jumping: no prev/next stepping,
+    // and the status reads filtered/total rows.
+    if (currentView === "table" && tableView !== null) {
+      const state = tableView.getFilterState();
+      searchStatus.textContent = state.query
+        ? `${state.shown} of ${state.total} row${state.total === 1 ? "" : "s"}`
+        : "";
+      searchPrevBtn.disabled = true;
+      searchNextBtn.disabled = true;
+      searchClearBtn.disabled = !state.query;
+      return;
+    }
+
     const state = treeView.getSearchState();
 
     if (!state.query) {
@@ -576,7 +611,11 @@ async function init(): Promise<void> {
 
   async function runSearch(query: string) {
     searchTimer = null;
-    await treeView.search(query);
+    if (currentView === "table" && tableView !== null) {
+      tableView.setFilter(query);
+    } else {
+      await treeView.search(query);
+    }
     updateSearchUi();
   }
 
@@ -597,7 +636,6 @@ async function init(): Promise<void> {
     }, 180);
   });
 
-  const searchPanel = document.getElementById("jv-search-panel")!;
   const searchToggleBtn = document.getElementById("jv-search-toggle")!;
 
   // Declared before the document keydown listener below so the handler never
@@ -630,6 +668,10 @@ async function init(): Promise<void> {
       searchInput.value = "";
       void treeView.clearSearch().then(updateSearchUi);
     }
+    if (tableView !== null && tableView.getFilterState().query) {
+      tableView.setFilter("");
+      updateSearchUi();
+    }
   }
 
   searchToggleBtn.addEventListener("click", () => {
@@ -640,6 +682,11 @@ async function init(): Promise<void> {
   searchInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      // Filter mode has no match stepping; Enter just commits the query.
+      if (currentView === "table") {
+        void commitSearch(searchInput.value);
+        return;
+      }
       const currentQuery = treeView.getSearchState().query;
       if (searchInput.value !== currentQuery) {
         void commitSearch(searchInput.value);
@@ -676,7 +723,12 @@ async function init(): Promise<void> {
     const cmdOrCtrl = (e.metaKey || e.ctrlKey) && !e.altKey;
     const key = e.key.toLowerCase();
 
-    if (cmdOrCtrl && !e.shiftKey && key === "f" && currentView === "tree") {
+    if (
+      cmdOrCtrl &&
+      !e.shiftKey &&
+      key === "f" &&
+      (currentView === "tree" || currentView === "table")
+    ) {
       e.preventDefault();
       openSearchPanel();
       return;
