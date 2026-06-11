@@ -429,7 +429,9 @@ html:has(#jv-root) {
   color: var(--text);
 }
 
-.jv-line.jv-search-match {
+.jv-line.jv-search-match,
+.jv-table-cell.jv-search-match,
+.jv-table-th.jv-search-match {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
@@ -571,6 +573,12 @@ html:has(#jv-root) {
 
 .jv-table-row:hover {
   background: var(--bg-hover);
+}
+
+/* display: grid above beats the UA's [hidden] rule — restate it, or rows
+   filtered out by search stay visible. */
+.jv-table-row[hidden] {
+  display: none;
 }
 
 .jv-table-cell {

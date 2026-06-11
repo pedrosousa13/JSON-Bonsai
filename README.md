@@ -24,7 +24,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 ### Query, search, and copy
 
 - JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree
-- Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`)
+- Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`); in table view, search filters the rows instead
 - Hover any property to see its full JSON path — click to pin, then copy
 - Per-node actions: copy any subtree's value, expand/collapse all children
 - Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
@@ -79,7 +79,7 @@ Navigate to any URL that returns JSON (e.g. `https://jsonplaceholder.typicode.co
 - **Level buttons** (1, 2, 3... All) — collapse/expand the tree to a specific depth
 - **View picker** (Tree / Table / Formatted / Raw / Schema) — switch between interactive tree, sortable table (enabled when the root is an array of objects), pretty-printed JSON, raw JSON, and an inferred JSON Schema
 - **Query** (ƒ or `Q`) — run a [JMESPath](https://jmespath.org) expression, e.g. `items[?price > \`10\`].name`; the result replaces the tree, ✕ on the chip restores the document
-- **Search** (⌕ or `⌘F`) — find keys, values, and paths; `Enter` / `Shift+Enter` step through matches
+- **Search** (⌕ or `⌘F`) — find keys, values, and paths; `Enter` / `Shift+Enter` step through matches. In table view, search filters the rows and shows a row count instead
 - **Theme toggle** — cycle the theme mode between auto (◐), dark (☾), and light (☀)
 - **Copy JSON** (`C`) — copy what the active view shows
 - **Click any line** — pins the JSON path in the toolbar, click Copy to copy it
