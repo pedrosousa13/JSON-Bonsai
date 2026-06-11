@@ -23,6 +23,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 - Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
 - JSON payload available in the console as `window.data`
 - base16 theming — 13 bundled schemes plus your own custom themes, with auto/dark/light mode switching
+- Per-site memory — the view mode and tree depth you pick are remembered per origin and restored on your next visit
 - Indent guide lines with hover highlighting
 - Cross-platform builds (Windows/macOS/Linux) and a single package that works in both Chrome and Firefox
 
