@@ -12,21 +12,32 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 ## Features
 
+### Views
+
+- Five view modes: Tree, Table, Formatted, Raw, and Schema (inferred JSON Schema, draft-07)
 - Virtualized tree rendering — smooth scrolling and interaction on 100k+ node payloads
+- Table view for arrays of objects — sortable columns, virtualized rows, works on query results too
+- Collapsible/expandable tree view with level controls — press `1`–`8` to set depth, `0` to expand all
+- Syntax highlighting for keys, strings, numbers, booleans, and null; URLs become clickable links
+- Indent guide lines with hover highlighting
+
+### Query, search, and copy
+
 - JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree
 - Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`)
-- Five view modes: Tree, Table, Formatted, Raw, and Schema (inferred JSON Schema, draft-07)
-- Table view for arrays of objects — sortable columns, virtualized rows, works on query results too
-- Syntax highlighting for keys, strings, numbers, booleans, and null; URLs become clickable links
-- Lossless big numbers — 64-bit IDs and high-precision decimals display and copy exactly as sent, where `JSON.parse` would silently corrupt them
-- Collapsible/expandable tree view with level controls — press `1`–`8` to set depth, `0` to expand all
 - Hover any property to see its full JSON path — click to pin, then copy
 - Per-node actions: copy any subtree's value, expand/collapse all children
 - Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
 - JSON payload available in the console as `window.data`
+
+### Fidelity
+
+- Lossless big numbers — 64-bit IDs and high-precision decimals display and copy exactly as sent, where `JSON.parse` would silently corrupt them
+
+### Personalization and platform
+
 - base16 theming — 13 bundled schemes plus your own custom themes, with auto/dark/light mode switching
 - Per-site memory — the view mode and tree depth you pick are remembered per origin and restored on your next visit
-- Indent guide lines with hover highlighting
 - Cross-platform builds (Windows/macOS/Linux) and a single package that works in both Chrome and Firefox
 
 ## Installation
@@ -60,19 +71,6 @@ Firefox has a built-in JSON viewer that can prevent this add-on from taking over
 3. Search for `devtools.jsonview.enabled`
 4. Set it to `false`
 5. Reload any JSON page
-
-## Development
-
-```bash
-npm run dev      # watch mode — rebuilds on file changes
-npm run build    # production build
-npm run zip      # build and create json-bonsai.zip
-npm run package  # build and create per-store zips (Chrome + Firefox)
-```
-
-Releases are automated: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, packages, attaches the zips to a GitHub Release, and (when store credentials are configured as repository secrets) publishes to the Chrome Web Store and Firefox Add-ons.
-
-After making changes, reload the extension in your browser.
 
 ## Usage
 
@@ -123,3 +121,21 @@ You can add any base16 scheme of your own:
 Invalid pastes show an inline error. Custom themes can be deleted from the settings menu; deleting one that's currently in use reverts to the default scheme.
 
 There are ~290 more ready-made schemes at [tinted-theming/schemes](https://github.com/tinted-theming/schemes) (also linked from the settings menu).
+
+## Development
+
+```bash
+npm run dev       # watch mode — rebuilds on file changes
+npm run build     # production build
+npm run typecheck # TypeScript, no emit
+npm test          # unit tests (vitest)
+npm run test:e2e  # browser tests (Playwright — loads the built extension into Chromium)
+npm run zip       # build and create json-bonsai.zip
+npm run package   # build and create per-store zips (Chrome + Firefox)
+```
+
+`test:e2e` needs a build first and a one-time `npx playwright install chromium`. CI runs typecheck, unit tests, build, and the E2E suite on every PR.
+
+Releases are automated: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, packages, attaches the zips to a GitHub Release, and (when store credentials are configured as repository secrets) publishes to the Chrome Web Store and Firefox Add-ons.
+
+After making changes, reload the extension in your browser.
