@@ -21,6 +21,11 @@ import {
   loadOriginPrefs,
   type OriginPrefs,
 } from "./prefs";
+import {
+  checkTableEligibility,
+  createTableView,
+  type TableViewController,
+} from "./table";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
@@ -125,6 +130,7 @@ async function init(): Promise<void> {
       <span id="jv-query-chip" hidden><span id="jv-query-chip-text"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
+        <button class="jv-view-btn" data-view="table">Table</button>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
         <button class="jv-view-btn" data-view="raw">Raw</button>
         <button class="jv-view-btn" data-view="schema">Schema</button>
@@ -162,6 +168,7 @@ async function init(): Promise<void> {
     </div>
     <div id="jv-content">
       <div id="jv-tree"></div>
+      <div id="jv-table"></div>
       <pre id="jv-formatted"></pre>
       <pre id="jv-raw"></pre>
       <pre id="jv-schema"></pre>
@@ -220,6 +227,7 @@ async function init(): Promise<void> {
   head.appendChild(link);
 
   const tree = document.getElementById("jv-tree")!;
+  const tableEl = document.getElementById("jv-table")!;
   const formattedEl = document.getElementById("jv-formatted")!;
   const rawEl = document.getElementById("jv-raw")!;
   const schemaEl = document.getElementById("jv-schema")!;
@@ -236,7 +244,7 @@ async function init(): Promise<void> {
   const renderStatus = document.getElementById("jv-render-status")!;
   const content = document.getElementById("jv-content")!;
   const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
-  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl, schema: schemaEl };
+  const views: Record<string, HTMLElement> = { tree, table: tableEl, formatted: formattedEl, raw: rawEl, schema: schemaEl };
   const copyBtn = document.getElementById("jv-copy")!;
   const copyLabel = copyBtn.querySelector<HTMLElement>(".jv-copy-label")!;
   const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
@@ -247,6 +255,11 @@ async function init(): Promise<void> {
   const viewScrollTops: Record<string, number> = {};
   let searchTimer: number | null = null;
   let activeQueryResult: { expression: string; result: JsonValue } | null = null;
+  let tableView: TableViewController | null = null;
+
+  function currentDocument(): JsonValue {
+    return activeQueryResult !== null ? activeQueryResult.result : data;
+  }
 
   renderStatus.textContent = "Indexing JSON...";
   const model = buildTreeModel(data);
@@ -379,8 +392,13 @@ async function init(): Promise<void> {
 
   // Restore this origin's saved view before the tree mounts so the default
   // view never flashes. Rendering skips while the tree is hidden; setView
-  // refreshes it on the way back.
-  if (originPrefs.view !== undefined && originPrefs.view in views) {
+  // refreshes it on the way back. A saved "table" only applies if this
+  // document is tabular — the same origin can serve non-array payloads.
+  if (
+    originPrefs.view !== undefined &&
+    originPrefs.view in views &&
+    (originPrefs.view !== "table" || checkTableEligibility(data).eligible)
+  ) {
     setView(originPrefs.view);
   }
 
@@ -428,7 +446,12 @@ async function init(): Promise<void> {
   function ensureViewContent(name: string) {
     if (loadedViews.has(name)) return;
 
-    if (name === "formatted") {
+    if (name === "table") {
+      tableView?.dispose();
+      tableView = createTableView(tableEl, currentDocument() as JsonValue[], {
+        scrollContainer: content,
+      });
+    } else if (name === "formatted") {
       formattedEl.textContent = getPrettyRaw();
     } else if (name === "raw") {
       rawEl.textContent = raw;
@@ -456,14 +479,44 @@ async function init(): Promise<void> {
     });
     content.scrollTop = viewScrollTops[name] ?? 0;
     // Window renders are skipped while the tree is hidden, so re-render it
-    // for the restored scroll position on return.
+    // for the restored scroll position on return. Same for the table.
     if (name === "tree" && treeMounted) treeView.refresh();
+    if (name === "table") tableView?.refresh();
     persistOriginPrefs();
   }
 
   viewBtns.forEach((btn) => {
     btn.addEventListener("click", () => setView(btn.dataset.view!));
   });
+
+  const tableBtn = document.querySelector<HTMLButtonElement>(
+    '.jv-view-btn[data-view="table"]'
+  )!;
+
+  function updateTableAvailability(): void {
+    const eligibility = checkTableEligibility(currentDocument());
+    tableBtn.disabled = !eligibility.eligible;
+    tableBtn.title = eligibility.reason ?? "View as a sortable table";
+  }
+
+  // The table shows whichever document is on screen, so a query swap (or
+  // restore) rebuilds it and re-checks whether the new root is tabular.
+  function refreshTableForDocument(): void {
+    loadedViews.delete("table");
+    tableView?.dispose();
+    tableView = null;
+    delete viewScrollTops.table;
+    updateTableAvailability();
+    if (currentView !== "table") return;
+    if (tableBtn.disabled) {
+      setView("tree");
+    } else {
+      content.scrollTop = 0;
+      ensureViewContent("table");
+    }
+  }
+
+  updateTableAvailability();
 
   // Copy
   function copyJson(): void {
@@ -472,7 +525,8 @@ async function init(): Promise<void> {
         ? schemaEl.textContent!
         : currentView === "raw"
           ? raw
-          : currentView === "tree" && activeQueryResult !== null
+          : (currentView === "tree" || currentView === "table") &&
+              activeQueryResult !== null
             ? JSON.stringify(activeQueryResult.result, null, 2)
             : getPrettyRaw();
 
@@ -666,6 +720,7 @@ async function init(): Promise<void> {
     resultSearchIndex?.dispose();
     resultSearchIndex = null;
     await mountTree(model, originalSearchIndex!);
+    refreshTableForDocument();
 
     // Put the depth back where the user had it before the query.
     if (originalLevelSelection !== null) clickLevelSelection(originalLevelSelection);
@@ -693,6 +748,7 @@ async function init(): Promise<void> {
     resultSearchIndex?.dispose();
     resultSearchIndex = createSearchIndexFor(resultModel);
     await mountTree(resultModel, resultSearchIndex);
+    refreshTableForDocument();
   }
 
   queryToggleBtn.addEventListener("click", () => {
