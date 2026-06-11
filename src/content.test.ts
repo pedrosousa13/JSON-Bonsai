@@ -53,3 +53,51 @@ test("each view keeps its own scroll position across switches", async () => {
   rawBtn.click();
   expect(content.scrollTop).toBe(4000);
 });
+
+test("restores this origin's saved view and level on load", async () => {
+  vi.resetModules();
+  const store: Record<string, unknown> = {
+    [`jv-prefs:${location.origin}`]: { view: "raw", level: 1 },
+  };
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") {
+            return query in store ? { [query]: store[query] } : {};
+          }
+          if (Array.isArray(query)) {
+            const out: Record<string, unknown> = {};
+            for (const key of query) if (key in store) out[key] = store[key];
+            return out;
+          }
+          return { ...query };
+        }),
+        set: vi.fn(async (items: Record<string, unknown>) => {
+          Object.assign(store, items);
+        }),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: { b: { c: 1 } } })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // Raw view is active instead of the default tree...
+  const rawBtn = document.querySelector<HTMLElement>('.jv-view-btn[data-view="raw"]')!;
+  expect(rawBtn.classList.contains("jv-active")).toBe(true);
+  expect(document.getElementById("jv-raw")!.classList.contains("jv-active")).toBe(true);
+  expect(document.getElementById("jv-tree")!.classList.contains("jv-hidden")).toBe(true);
+
+  // ...and the saved depth is the active level button.
+  const levelBtn = document.querySelector<HTMLElement>('#jv-levels button[data-level="1"]')!;
+  expect(levelBtn.classList.contains("jv-active")).toBe(true);
+});
