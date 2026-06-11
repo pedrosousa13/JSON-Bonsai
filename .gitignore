@@ -9,3 +9,5 @@ dist
 .idea
 *.zip
 .claude/
+test-results/
+playwright-report/
