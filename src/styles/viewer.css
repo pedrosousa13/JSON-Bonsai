@@ -575,6 +575,12 @@ html:has(#jv-root) {
   background: var(--bg-hover);
 }
 
+/* display: grid above beats the UA's [hidden] rule — restate it, or rows
+   filtered out by search stay visible. */
+.jv-table-row[hidden] {
+  display: none;
+}
+
 .jv-table-cell {
   padding: 0 8px;
   overflow: hidden;
