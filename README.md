@@ -42,6 +42,8 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 ## Installation
 
+Install directly from the [Chrome Web Store](https://chromewebstore.google.com/detail/json-bonsai/dpcomlfdaamelgcgnalkfomdfpmioeml).
+
 Prebuilt `.zip` packages are attached to each [GitHub Release](https://github.com/pedrosousa13/JSON-Bonsai/releases). To run from source, build it first — the `dist/` folder is not committed:
 
 ```bash
