@@ -295,3 +295,66 @@ test("search Close button closes the panel with an empty query", async () => {
   clear.click();
   expect(panel.hidden).toBe(true);
 });
+
+test("disabled Table button exposes the eligibility reason via data-tip", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (q: any) => (Array.isArray(q) ? {} : q)),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>{"a":1}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const tableBtn = document.querySelector<HTMLButtonElement>(
+    '.jv-view-btn[data-view="table"]'
+  )!;
+  expect(tableBtn.disabled).toBe(true);
+
+  const tip = tableBtn.closest<HTMLElement>(".jv-tip")!;
+  expect(tip).not.toBeNull();
+  expect(tip.dataset.tip).toBe(
+    "Table view needs the document root to be an array of objects."
+  );
+});
+
+test("eligible Table button carries no data-tip", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (q: any) => (Array.isArray(q) ? {} : q)),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>[{"a":1}]</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const tableBtn = document.querySelector<HTMLButtonElement>(
+    '.jv-view-btn[data-view="table"]'
+  )!;
+  expect(tableBtn.disabled).toBe(false);
+
+  const tip = tableBtn.closest<HTMLElement>(".jv-tip")!;
+  expect(tip.dataset.tip).toBeUndefined();
+});
