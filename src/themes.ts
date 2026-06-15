@@ -1,5 +1,3 @@
-export type ThemeMode = "auto" | "dark" | "light";
-
 export interface Base16Palette {
   base00: string;
   base01: string;
