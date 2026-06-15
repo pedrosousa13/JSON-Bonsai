@@ -259,3 +259,39 @@ test("migrates legacy mode/dark/light keys to a single jv-theme-id", async () =>
   const select = document.getElementById("jv-theme-select") as HTMLSelectElement;
   expect(select.value).toBe("nord");
 });
+
+test("search Close button closes the panel with an empty query", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (q: any) => (Array.isArray(q) ? {} : q)),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>[{"id":1,"name":"a"}]</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const toggle = document.getElementById("jv-search-toggle")!;
+  const panel = document.getElementById("jv-search-panel")!;
+  const clear = document.getElementById("jv-search-clear") as HTMLButtonElement;
+
+  toggle.click();
+  expect(panel.hidden).toBe(false);
+
+  // The × is the Close affordance — it must stay clickable even with no query
+  // (mountTree runs updateSearchUi on load, which previously disabled it).
+  expect(clear.disabled).toBe(false);
+
+  clear.click();
+  expect(panel.hidden).toBe(true);
+});
