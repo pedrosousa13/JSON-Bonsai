@@ -161,7 +161,7 @@ async function init(): Promise<void> {
       <span id="jv-query-chip" hidden><span id="jv-query-chip-text"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
-        <button class="jv-view-btn" data-view="table">Table</button>
+        <span class="jv-tip"><button class="jv-view-btn" data-view="table">Table</button></span>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
         <button class="jv-view-btn" data-view="raw">Raw</button>
         <button class="jv-view-btn" data-view="schema">Schema</button>
@@ -528,11 +528,19 @@ async function init(): Promise<void> {
   const tableBtn = document.querySelector<HTMLButtonElement>(
     '.jv-view-btn[data-view="table"]'
   )!;
+  const tableTip = tableBtn.closest<HTMLElement>(".jv-tip")!;
 
   function updateTableAvailability(): void {
     const eligibility = checkTableEligibility(currentDocument());
     tableBtn.disabled = !eligibility.eligible;
     tableBtn.title = eligibility.reason ?? "View as a sortable table";
+    // Disabled buttons suppress native title + hover, so the reason is shown
+    // via a CSS tooltip on the (non-disabled) wrapper instead.
+    if (eligibility.reason) {
+      tableTip.dataset.tip = eligibility.reason;
+    } else {
+      delete tableTip.dataset.tip;
+    }
   }
 
   // The table shows whichever document is on screen, so a query swap (or

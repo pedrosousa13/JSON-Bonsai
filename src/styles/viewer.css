@@ -661,7 +661,6 @@ html:has(#jv-root) {
   gap: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
-  overflow: hidden;
 }
 
 .jv-view-btn {
@@ -671,13 +670,51 @@ html:has(#jv-root) {
   padding: 3px 10px;
 }
 
+.jv-view-btn:first-child {
+  border-top-left-radius: 3px !important;
+  border-bottom-left-radius: 3px !important;
+}
+
 .jv-view-btn:last-child {
   border-right: none !important;
+  border-top-right-radius: 3px !important;
+  border-bottom-right-radius: 3px !important;
 }
 
 .jv-view-btn.jv-active {
   background: var(--accent);
   color: var(--bg);
+}
+
+/* Disabled buttons swallow hover/title, so the reason shows via a CSS tooltip
+   on the .jv-tip wrapper around the Table button. */
+.jv-view-btn:disabled {
+  pointer-events: none;
+}
+
+.jv-tip {
+  display: inline-flex;
+  position: relative;
+}
+
+.jv-tip[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: 240px;
+  white-space: normal;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-tooltip);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
 }
 
 #jv-tree.jv-hidden,
