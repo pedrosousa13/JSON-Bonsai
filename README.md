@@ -12,6 +12,23 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 **Install:** [Chrome Web Store](https://chromewebstore.google.com/detail/json-bonsai/dpcomlfdaamelgcgnalkfomdfpmioeml) · [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/json-bonsai/)
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/1-query.png" alt="JMESPath query bar"><br><sub>Query (JMESPath)</sub></td>
+    <td width="50%"><img src="screenshots/2-search.png" alt="Content search with match navigation"><br><sub>Search</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="screenshots/3-theming.png" alt="base16 theming"><br><sub>Theming</sub></td>
+    <td width="50%"><img src="screenshots/4-formatted.png" alt="Formatted view"><br><sub>Formatted</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="screenshots/5-schema.png" alt="Inferred JSON Schema view"><br><sub>Schema</sub></td>
+    <td width="50%"></td>
+  </tr>
+</table>
+
 ## Features
 
 ### Views
