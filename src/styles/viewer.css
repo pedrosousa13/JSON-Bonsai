@@ -661,7 +661,6 @@ html:has(#jv-root) {
   gap: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
-  overflow: hidden;
 }
 
 .jv-view-btn {
@@ -671,8 +670,15 @@ html:has(#jv-root) {
   padding: 3px 10px;
 }
 
+.jv-view-btn:first-child {
+  border-top-left-radius: 3px !important;
+  border-bottom-left-radius: 3px !important;
+}
+
 .jv-view-btn:last-child {
   border-right: none !important;
+  border-top-right-radius: 3px !important;
+  border-bottom-right-radius: 3px !important;
 }
 
 .jv-view-btn.jv-active {
