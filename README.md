@@ -6,10 +6,6 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 <img src="icons/json-bonsai.webp" alt="JSON Bonsai" width="180">
 
-![Preview Chrome](src/preview-chrome.png)
-
-![Preview Firefox](src/preview-firefox.png)
-
 **Install:** [Chrome Web Store](https://chromewebstore.google.com/detail/json-bonsai/dpcomlfdaamelgcgnalkfomdfpmioeml) · [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/json-bonsai/)
 
 ## Screenshots
