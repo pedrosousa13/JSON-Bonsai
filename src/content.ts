@@ -591,7 +591,6 @@ async function init(): Promise<void> {
         : "";
       searchPrevBtn.disabled = true;
       searchNextBtn.disabled = true;
-      searchClearBtn.disabled = !state.query;
       return;
     }
 
@@ -608,7 +607,6 @@ async function init(): Promise<void> {
     const hasResults = state.matchCount > 0;
     searchPrevBtn.disabled = !hasResults;
     searchNextBtn.disabled = !hasResults;
-    searchClearBtn.disabled = !state.query;
   }
 
   async function runSearch(query: string) {
