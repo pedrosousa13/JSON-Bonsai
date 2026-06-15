@@ -10,10 +10,10 @@ import {
   BUILTIN_SCHEMES,
   DEFAULT_DARK_ID,
   DEFAULT_LIGHT_ID,
+  DEFAULT_THEME_ID,
   parseScheme,
   schemeToCssVars,
   type Base16Scheme,
-  type ThemeMode,
 } from "./themes";
 import { runQuery } from "./query";
 import {
@@ -65,30 +65,57 @@ async function storageSet(key: string, value: string): Promise<void> {
 }
 
 interface ThemeState {
-  mode: ThemeMode;
-  darkId: string;
-  lightId: string;
+  themeId: string;
   customs: Base16Scheme[];
 }
 
 async function loadThemeState(): Promise<ThemeState> {
-  // One-time migration: jv-theme used to hold the mode; jv-custom-cursor is gone.
-  const legacy = await chrome.storage.local.get(["jv-theme", "jv-custom-cursor"]);
-  if (typeof legacy["jv-theme"] === "string") {
-    await chrome.storage.local.set({ "jv-theme-mode": legacy["jv-theme"] });
-  }
-  const legacyKeys = ["jv-theme", "jv-custom-cursor"].filter((key) => key in legacy);
-  if (legacyKeys.length > 0) {
-    await chrome.storage.local.remove(legacyKeys);
+  // One-time migration from the old { mode, darkId, lightId } model to a single
+  // themeId. Also clears the older jv-theme / jv-custom-cursor keys.
+  const legacy = await chrome.storage.local.get([
+    "jv-theme",
+    "jv-custom-cursor",
+    "jv-theme-mode",
+    "jv-theme-dark",
+    "jv-theme-light",
+    "jv-theme-id",
+  ]);
+
+  let themeId = legacy["jv-theme-id"] as string | undefined;
+
+  if (typeof themeId !== "string") {
+    // Derive the single id from whatever the old model would have shown.
+    const mode =
+      (legacy["jv-theme-mode"] as string | undefined) ??
+      (legacy["jv-theme"] as string | undefined);
+    const darkId = (legacy["jv-theme-dark"] as string | undefined) ?? DEFAULT_DARK_ID;
+    const lightId = (legacy["jv-theme-light"] as string | undefined) ?? DEFAULT_LIGHT_ID;
+    if (mode === "light") {
+      themeId = lightId;
+    } else if (mode === "dark") {
+      themeId = darkId;
+    } else {
+      // auto or unset: pick by OS preference, read once.
+      themeId = window.matchMedia("(prefers-color-scheme: light)").matches
+        ? lightId
+        : darkId;
+    }
+    await chrome.storage.local.set({ "jv-theme-id": themeId });
   }
 
-  const stored = await chrome.storage.local.get({
-    "jv-theme-mode": "auto",
-    "jv-theme-dark": DEFAULT_DARK_ID,
-    "jv-theme-light": DEFAULT_LIGHT_ID,
-    "jv-custom-themes": "[]",
-  });
+  // Remove every superseded key.
+  const stale = [
+    "jv-theme",
+    "jv-custom-cursor",
+    "jv-theme-mode",
+    "jv-theme-dark",
+    "jv-theme-light",
+  ].filter((key) => key in legacy);
+  if (stale.length > 0) {
+    await chrome.storage.local.remove(stale);
+  }
 
+  const stored = await chrome.storage.local.get({ "jv-custom-themes": "[]" });
   let customs: Base16Scheme[] = [];
   try {
     const parsed = JSON.parse(stored["jv-custom-themes"] as string) as unknown;
@@ -97,13 +124,7 @@ async function loadThemeState(): Promise<ThemeState> {
     // Corrupted storage — start with no custom themes.
   }
 
-  const mode = stored["jv-theme-mode"] as string;
-  return {
-    mode: mode === "dark" || mode === "light" ? mode : "auto",
-    darkId: stored["jv-theme-dark"] as string,
-    lightId: stored["jv-theme-light"] as string,
-    customs,
-  };
+  return { themeId, customs };
 }
 
 async function init(): Promise<void> {
@@ -145,13 +166,11 @@ async function init(): Promise<void> {
         <button class="jv-view-btn" data-view="schema">Schema</button>
       </div>
       <span id="jv-render-status"></span>
-      <button id="jv-theme-toggle" title="Toggle theme"></button>
       <button id="jv-copy"><span class="jv-copy-label">Copy JSON</span><kbd class="jv-kbd">C</kbd></button>
       <div id="jv-settings">
         <button id="jv-settings-toggle" title="Settings">⚙</button>
         <div id="jv-settings-menu">
-          <div class="jv-settings-row"><span>Dark theme</span><select id="jv-theme-dark-select"></select></div>
-          <div class="jv-settings-row"><span>Light theme</span><select id="jv-theme-light-select"></select></div>
+          <div class="jv-settings-row"><span>Theme</span><select id="jv-theme-select"></select></div>
           <textarea id="jv-theme-paste" placeholder="Paste a base16 scheme (YAML or JSON)" spellcheck="false"></textarea>
           <div class="jv-settings-row">
             <a id="jv-theme-browse" href="https://github.com/tinted-theming/schemes" target="_blank" rel="noreferrer">Find more themes</a>
@@ -187,30 +206,16 @@ async function init(): Promise<void> {
   const themeState = await loadThemeState();
   const originPrefs = await loadOriginPrefs(location.origin);
   const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
-  const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
 
   function allSchemes(): Base16Scheme[] {
     return [...BUILTIN_SCHEMES, ...themeState.customs];
   }
 
-  function findScheme(id: string, variant: "dark" | "light"): Base16Scheme {
-    const fallbackId = variant === "dark" ? DEFAULT_DARK_ID : DEFAULT_LIGHT_ID;
-    return (
-      allSchemes().find((s) => s.id === id) ??
-      BUILTIN_SCHEMES.find((s) => s.id === fallbackId)!
-    );
-  }
-
   function resolveScheme(): Base16Scheme {
-    const variant =
-      themeState.mode === "auto"
-        ? prefersLight.matches
-          ? "light"
-          : "dark"
-        : themeState.mode;
-    return variant === "dark"
-      ? findScheme(themeState.darkId, "dark")
-      : findScheme(themeState.lightId, "light");
+    return (
+      allSchemes().find((s) => s.id === themeState.themeId) ??
+      BUILTIN_SCHEMES.find((s) => s.id === DEFAULT_THEME_ID)!
+    );
   }
 
   function applyTheme(): void {
@@ -221,10 +226,6 @@ async function init(): Promise<void> {
     // Overscroll area behind the viewer follows the toolbar color.
     document.documentElement.style.background = scheme.palette.base01;
   }
-
-  prefersLight.addEventListener("change", () => {
-    if (themeState.mode === "auto") applyTheme();
-  });
 
   applyTheme();
 
@@ -851,24 +852,6 @@ async function init(): Promise<void> {
     }
   });
 
-  const modeIcons: Record<ThemeMode, string> = { auto: "◐", dark: "☾", light: "☀" };
-  const themeToggleBtn = document.getElementById("jv-theme-toggle")!;
-
-  function updateModeButton(): void {
-    themeToggleBtn.textContent = modeIcons[themeState.mode];
-    themeToggleBtn.title = `Theme mode: ${themeState.mode}`;
-  }
-
-  themeToggleBtn.addEventListener("click", async () => {
-    themeState.mode =
-      themeState.mode === "auto" ? "dark" : themeState.mode === "dark" ? "light" : "auto";
-    await storageSet("jv-theme-mode", themeState.mode);
-    updateModeButton();
-    applyTheme();
-  });
-
-  updateModeButton();
-
   const settingsToggle = document.getElementById("jv-settings-toggle")!;
   const settingsMenu = document.getElementById("jv-settings-menu")!;
   settingsToggle.addEventListener("click", () => {
@@ -880,31 +863,29 @@ async function init(): Promise<void> {
     }
   });
 
-  const darkSelect = document.getElementById("jv-theme-dark-select") as HTMLSelectElement;
-  const lightSelect = document.getElementById("jv-theme-light-select") as HTMLSelectElement;
+  const themeSelect = document.getElementById("jv-theme-select") as HTMLSelectElement;
   const pasteArea = document.getElementById("jv-theme-paste") as HTMLTextAreaElement;
   const addThemeBtn = document.getElementById("jv-theme-add")!;
   const themeError = document.getElementById("jv-theme-error")!;
   const customList = document.getElementById("jv-custom-list")!;
 
-  function fillThemeSelect(
-    select: HTMLSelectElement,
-    variant: "dark" | "light",
-    activeId: string
-  ): void {
-    select.innerHTML = "";
+  function fillThemeGroup(variant: "dark" | "light", label: string): HTMLOptGroupElement {
+    const group = document.createElement("optgroup");
+    group.label = label;
     for (const scheme of allSchemes().filter((s) => s.variant === variant)) {
       const option = document.createElement("option");
       option.value = scheme.id;
       option.textContent = scheme.name;
-      option.selected = scheme.id === activeId;
-      select.appendChild(option);
+      option.selected = scheme.id === themeState.themeId;
+      group.appendChild(option);
     }
+    return group;
   }
 
   function renderThemeControls(): void {
-    fillThemeSelect(darkSelect, "dark", themeState.darkId);
-    fillThemeSelect(lightSelect, "light", themeState.lightId);
+    themeSelect.innerHTML = "";
+    themeSelect.appendChild(fillThemeGroup("dark", "Dark"));
+    themeSelect.appendChild(fillThemeGroup("light", "Light"));
 
     customList.innerHTML = "";
     for (const scheme of themeState.customs) {
@@ -926,28 +907,18 @@ async function init(): Promise<void> {
 
   async function deleteCustomTheme(id: string): Promise<void> {
     themeState.customs = themeState.customs.filter((s) => s.id !== id);
-    if (themeState.darkId === id) {
-      themeState.darkId = DEFAULT_DARK_ID;
-      await storageSet("jv-theme-dark", themeState.darkId);
-    }
-    if (themeState.lightId === id) {
-      themeState.lightId = DEFAULT_LIGHT_ID;
-      await storageSet("jv-theme-light", themeState.lightId);
+    if (themeState.themeId === id) {
+      themeState.themeId = DEFAULT_THEME_ID;
+      await storageSet("jv-theme-id", themeState.themeId);
     }
     await saveCustomThemes();
     renderThemeControls();
     applyTheme();
   }
 
-  darkSelect.addEventListener("change", () => {
-    themeState.darkId = darkSelect.value;
-    void storageSet("jv-theme-dark", themeState.darkId);
-    applyTheme();
-  });
-
-  lightSelect.addEventListener("change", () => {
-    themeState.lightId = lightSelect.value;
-    void storageSet("jv-theme-light", themeState.lightId);
+  themeSelect.addEventListener("change", () => {
+    themeState.themeId = themeSelect.value;
+    void storageSet("jv-theme-id", themeState.themeId);
     applyTheme();
   });
 
@@ -973,13 +944,8 @@ async function init(): Promise<void> {
     scheme.id = candidateId;
 
     themeState.customs.push(scheme);
-    if (scheme.variant === "dark") {
-      themeState.darkId = scheme.id;
-      await storageSet("jv-theme-dark", scheme.id);
-    } else {
-      themeState.lightId = scheme.id;
-      await storageSet("jv-theme-light", scheme.id);
-    }
+    themeState.themeId = scheme.id;
+    await storageSet("jv-theme-id", scheme.id);
     await saveCustomThemes();
     pasteArea.value = "";
     renderThemeControls();
