@@ -28,6 +28,8 @@ export interface Base16Scheme {
 
 export const DEFAULT_DARK_ID = "catppuccin-mocha";
 export const DEFAULT_LIGHT_ID = "catppuccin-latte";
+// The single fallback theme when no valid theme is selected.
+export const DEFAULT_THEME_ID = DEFAULT_DARK_ID;
 
 // Palettes sourced verbatim from https://github.com/tinted-theming/schemes
 // (spec-0.11 branch, base16/ directory), hex lowercased.

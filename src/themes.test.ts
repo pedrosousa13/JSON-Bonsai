@@ -4,6 +4,7 @@ import {
   BUILTIN_SCHEMES,
   DEFAULT_DARK_ID,
   DEFAULT_LIGHT_ID,
+  DEFAULT_THEME_ID,
   guessVariant,
   parseScheme,
   schemeToCssVars,
@@ -20,6 +21,11 @@ describe("BUILTIN_SCHEMES", () => {
     const ids = BUILTIN_SCHEMES.map((s) => s.id);
     expect(ids).toContain(DEFAULT_DARK_ID);
     expect(ids).toContain(DEFAULT_LIGHT_ID);
+  });
+
+  test("DEFAULT_THEME_ID is the dark default and a real builtin", () => {
+    expect(DEFAULT_THEME_ID).toBe(DEFAULT_DARK_ID);
+    expect(BUILTIN_SCHEMES.map((s) => s.id)).toContain(DEFAULT_THEME_ID);
   });
 
   test("every palette slot is a normalized 6-digit hex color", () => {
