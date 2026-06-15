@@ -88,6 +88,7 @@ async function loadThemeState(): Promise<ThemeState> {
     const mode =
       (legacy["jv-theme-mode"] as string | undefined) ??
       (legacy["jv-theme"] as string | undefined);
+    // DEFAULT_DARK_ID / DEFAULT_LIGHT_ID are migration fallbacks only.
     const darkId = (legacy["jv-theme-dark"] as string | undefined) ?? DEFAULT_DARK_ID;
     const lightId = (legacy["jv-theme-light"] as string | undefined) ?? DEFAULT_LIGHT_ID;
     if (mode === "light") {

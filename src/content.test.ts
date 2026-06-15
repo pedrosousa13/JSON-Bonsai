@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { expect, test, vi } from "vitest";
+import { DEFAULT_THEME_ID } from "./themes";
 
 test("each view keeps its own scroll position across switches", async () => {
   (globalThis as any).chrome = {
@@ -205,7 +206,7 @@ test("theme picker is a single grouped select with no mode toggle", async () => 
   expect(select).not.toBeNull();
   const groups = Array.from(select.querySelectorAll("optgroup"));
   expect(groups.map((g) => g.label)).toEqual(["Dark", "Light"]);
-  expect(select.value).toBe("catppuccin-mocha");
+  expect(select.value).toBe(DEFAULT_THEME_ID);
 });
 
 test("migrates legacy mode/dark/light keys to a single jv-theme-id", async () => {
