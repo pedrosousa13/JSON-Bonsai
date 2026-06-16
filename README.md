@@ -2,8 +2,6 @@
 
 Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer built to stay smooth on 100k+ node payloads.
 
-> **Note:** JSON Bonsai is a fork of [JSON Alexander](https://github.com/wesbos/JSON-Alexander) by [Wes Bos](https://github.com/wesbos). Original work © Wes Bos, MIT licensed — see [LICENSE](LICENSE).
-
 <img src="icons/json-bonsai.webp" alt="JSON Bonsai" width="180">
 
 **Install:** [Chrome Web Store](https://chromewebstore.google.com/detail/json-bonsai/dpcomlfdaamelgcgnalkfomdfpmioeml) · [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/json-bonsai/)
@@ -156,3 +154,9 @@ npm run package   # build and create per-store zips (Chrome + Firefox)
 Releases are automated: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, packages, attaches the zips to a GitHub Release, and (when store credentials are configured as repository secrets) publishes to the Chrome Web Store and Firefox Add-ons.
 
 After making changes, reload the extension in your browser.
+
+## Credits
+
+JSON Bonsai started as a fork of [JSON Alexander](https://github.com/wesbos/JSON-Alexander) by [Wes Bos](https://github.com/wesbos) and remains MIT licensed — see [LICENSE](LICENSE).
+
+It has since been largely rewritten. Of the four original source files only the ~15-line page bootstrap is unchanged; the viewer and content scripts were rebuilt and roughly tripled in size. Virtualized rendering, the Table and Schema views, the JMESPath query bar, web-worker search, lossless big numbers, base16 theming, per-site memory, the build scripts, and the test suite are all new. Thanks to Wes Bos for the original viewer this grew out of.
