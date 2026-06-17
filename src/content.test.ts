@@ -184,8 +184,8 @@ test("restores this origin's saved view and level on load", async () => {
   expect(document.getElementById("jv-raw")!.classList.contains("jv-active")).toBe(true);
   expect(document.getElementById("jv-tree")!.classList.contains("jv-hidden")).toBe(true);
 
-  // ...and the saved depth is reflected in the stepper value.
-  expect(document.getElementById("jv-level-value")!.textContent).toBe("1");
+  // ...and the saved depth is reflected in the level select.
+  expect((document.getElementById("jv-level-select") as HTMLSelectElement).value).toBe("1");
 });
 
 test("theme picker is a single grouped select with no mode toggle", async () => {
@@ -727,7 +727,7 @@ test("autocomplete is contextual: a dot lists element keys, arrays get a badge",
   expect(queryInput.selectionStart).toBe("users[*]".length);
 });
 
-test("depth stepper steps 1 → 2 → All, and number keys drive it", async () => {
+test("depth select lists levels + All, and number keys and the dropdown drive it", async () => {
   vi.resetModules();
   stubChrome();
 
@@ -735,24 +735,26 @@ test("depth stepper steps 1 → 2 → All, and number keys drive it", async () =
   await import("./content");
   await new Promise((resolve) => setTimeout(resolve, 150));
 
-  const value = document.getElementById("jv-level-value")!;
-  const dec = document.getElementById("jv-level-dec") as HTMLButtonElement;
-  const inc = document.getElementById("jv-level-inc") as HTMLButtonElement;
+  const select = document.getElementById("jv-level-select") as HTMLSelectElement;
+  const values = Array.from(select.options).map((o) => o.value);
+  // Numbered depths first (1..maxDepth), then All.
+  expect(values[0]).toBe("1");
+  expect(values[values.length - 1]).toBe("all");
+  // A small doc starts fully expanded.
+  expect(select.value).toBe("all");
 
-  // A small doc starts fully expanded; can't expand past All.
-  expect(value.textContent).toBe("All");
-  expect(inc.disabled).toBe(true);
-
-  // Number key collapses to that depth; dec floors at 1.
+  // A number key sets the depth; the select reflects it.
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
-  expect(value.textContent).toBe("1");
-  expect(dec.disabled).toBe(true);
+  expect(select.value).toBe("1");
 
-  // + steps to 2, then folds into All at the deepest level (maxDepth 3).
-  inc.click();
-  expect(value.textContent).toBe("2");
-  inc.click();
-  expect(value.textContent).toBe("All");
+  // Choosing from the dropdown applies that depth.
+  select.value = "2";
+  select.dispatchEvent(new Event("change"));
+  expect(select.value).toBe("2");
+
+  // 0 expands all again.
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "0", bubbles: true }));
+  expect(select.value).toBe("all");
 });
 
 test("the large-doc note lives in a dismissible bar, not the toolbar", async () => {

@@ -72,31 +72,16 @@ html:has(#jv-root) {
   margin-right: auto;
 }
 
-/* Depth stepper: − value + as a single segmented control. */
-#jv-levels {
-  display: inline-flex;
-  align-items: center;
+/* Depth selector: a compact dropdown of levels (1..maxDepth, All). */
+#jv-level-select {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--bg);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
-}
-
-#jv-toolbar #jv-level-dec,
-#jv-toolbar #jv-level-inc {
-  border: none;
-  border-radius: 0;
-  padding: 2px 9px;
-  font-size: 14px;
-  line-height: 1;
-}
-
-#jv-level-value {
-  min-width: 2.4ch;
-  padding: 0 6px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text);
-  border-inline: 1px solid var(--border);
-  user-select: none;
+  cursor: pointer;
 }
 
 /* Status / large-doc notice: a dismissible strip below the toolbar. */
@@ -928,7 +913,8 @@ html:has(#jv-root) {
   margin-left: 6px;
   padding: 0 4px;
   font-size: 10px;
-  color: var(--text-muted);
+  /* Readable on the toolbar — muted-on-hover was too low-contrast. */
+  color: var(--text);
   background: var(--btn-hover);
   border: 1px solid var(--border);
   border-radius: 3px;

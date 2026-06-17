@@ -52,17 +52,17 @@ test("formatted view restored after reload", async () => {
 
 test("tree view and explicit level restored after reload", async () => {
   await page.click('.jv-view-btn[data-view="tree"]');
-  await page.keyboard.press("2"); // collapse to depth 2 via the stepper path
-  await expect(page.locator("#jv-level-value")).toHaveText("2");
+  await page.keyboard.press("2"); // collapse to depth 2
+  await expect(page.locator("#jv-level-select")).toHaveValue("2");
   await page.waitForTimeout(600);
   await load("127.0.0.1");
   expect(await activeView()).toBe("tree");
-  await expect(page.locator("#jv-level-value")).toHaveText("2");
+  await expect(page.locator("#jv-level-select")).toHaveValue("2");
 });
 
 test("a different origin keeps defaults", async () => {
   // localhost and 127.0.0.1 are distinct origins
   await load("localhost");
   expect(await activeView()).toBe("tree");
-  await expect(page.locator("#jv-level-value")).toHaveText("All");
+  await expect(page.locator("#jv-level-select")).toHaveValue("all");
 });
