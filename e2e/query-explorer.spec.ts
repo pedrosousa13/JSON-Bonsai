@@ -51,6 +51,47 @@ test("autocomplete shows matching keys and accepting inserts the token", async (
   await page.click("#jv-query-close");
 });
 
+test("a dot after an array projection suggests the element keys, in view", async () => {
+  await page.click("#jv-query-toggle");
+  await expect(page.locator("#jv-query-panel")).toBeVisible();
+
+  // Contextual: only the array element's keys, not every key in the document.
+  await page.fill("#jv-query-input", "users[*].");
+  await expect(page.locator("#jv-query-suggest")).toBeVisible();
+  await expect(page.locator(".jv-query-suggest-name")).toHaveText([
+    "name",
+    "role",
+  ]);
+
+  // The dropdown sits inside the viewport — guards the panel-layout regression
+  // (toBeVisible alone can't catch an off-screen element).
+  const box = await page.locator("#jv-query-suggest").boundingBox();
+  expect(box).not.toBeNull();
+  const vh = page.viewportSize()!.height;
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(vh);
+
+  // The array-valued key carries a badge at top level.
+  await page.fill("#jv-query-input", "us");
+  await expect(
+    page
+      .locator(".jv-query-suggest-item")
+      .filter({ hasText: "users" })
+      .locator(".jv-query-suggest-badge")
+  ).toHaveCount(1);
+
+  // Accepting the array key inserts a [*] projection; a dot then descends.
+  await page.click(".jv-query-suggest-item", { force: true });
+  await expect(page.locator("#jv-query-input")).toHaveValue("users[*]");
+  await page.locator("#jv-query-input").press(".");
+  await expect(page.locator(".jv-query-suggest-name")).toHaveText([
+    "name",
+    "role",
+  ]);
+
+  await page.click("#jv-query-close");
+});
+
 test("query-from-here seeds the input and runs the query", async () => {
   // Pin a node's path by clicking its line, then trigger Query from here.
   const userLine = page
@@ -66,4 +107,32 @@ test("query-from-here seeds the input and runs the query", async () => {
   // The query ran: the chip reflects the active query.
   await expect(page.locator("#jv-query-chip")).toBeVisible();
   await expect(page.locator("#jv-query-chip-text")).toContainText("users");
+});
+
+test("recent queries surface in the dropdown and re-run on pick", async () => {
+  // Earlier tests may leave the panel open; only toggle it when hidden.
+  if (await page.locator("#jv-query-panel").isHidden()) {
+    await page.click("#jv-query-toggle");
+  }
+  await expect(page.locator("#jv-query-panel")).toBeVisible();
+  await page.fill("#jv-query-input", "settings.theme");
+  await page.locator("#jv-query-input").press("Escape"); // close key suggestions
+  await page.click("#jv-query-run");
+  await expect(page.locator("#jv-query-chip-text")).toContainText("settings.theme");
+
+  // Clearing the field and focusing it surfaces the history section.
+  await page.fill("#jv-query-input", "");
+  await page.locator("#jv-query-input").focus();
+  await expect(page.locator(".jv-query-suggest-section")).toHaveText("Recent queries");
+  const recent = page
+    .locator(".jv-query-suggest-recent")
+    .filter({ hasText: "settings.theme" });
+  await expect(recent).toHaveCount(1);
+
+  // Picking it refills the input and re-runs the query.
+  await recent.click({ force: true });
+  await expect(page.locator("#jv-query-input")).toHaveValue("settings.theme");
+  await expect(page.locator("#jv-query-chip-text")).toContainText("settings.theme");
+
+  await page.click("#jv-query-close");
 });

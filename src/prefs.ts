@@ -7,6 +7,10 @@
 export interface OriginPrefs {
   view?: string;
   level?: number | "all";
+  /** Last JMESPath query, persisted only when "remember queries" is enabled. */
+  query?: string;
+  /** Recent JMESPath queries, most-recent-first; persisted with the toggle. */
+  recentQueries?: string[];
 }
 
 const KEY_PREFIX = "jv-prefs:";
@@ -35,6 +39,13 @@ export async function loadOriginPrefs(origin: string): Promise<OriginPrefs> {
       (typeof raw.level === "number" && Number.isInteger(raw.level) && raw.level >= 1)
     ) {
       prefs.level = raw.level as number | "all";
+    }
+    if (typeof raw.query === "string") prefs.query = raw.query;
+    if (Array.isArray(raw.recentQueries)) {
+      const recents = raw.recentQueries.filter(
+        (q): q is string => typeof q === "string"
+      );
+      if (recents.length > 0) prefs.recentQueries = recents;
     }
     return prefs;
   } catch {

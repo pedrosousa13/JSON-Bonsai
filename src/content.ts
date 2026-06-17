@@ -19,9 +19,10 @@ import { runQuery } from "./query";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
-  currentToken,
-  suggest,
+  suggestAt,
   toJmespath,
+  type KeySuggestion,
+  type ValueKind,
 } from "./query-suggest";
 import {
   createOriginPrefsWriter,
@@ -70,6 +71,9 @@ function detectJSON(): {
 async function storageSet(key: string, value: string): Promise<void> {
   await chrome.storage.local.set({ [key]: value });
 }
+
+const REMEMBER_QUERY_KEY = "jv-remember-query";
+const RECENT_QUERY_CAP = 10;
 
 interface ThemeState {
   themeId: string;
@@ -165,7 +169,7 @@ async function init(): Promise<void> {
       <div id="jv-levels"></div>
       <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
       <button id="jv-query-toggle" title="Query (JMESPath) (Q)">ƒ</button>
-      <span id="jv-query-chip" hidden><span id="jv-query-chip-text"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
+      <span id="jv-query-chip" hidden><span id="jv-query-chip-text" title="Edit query"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
         <span class="jv-tip"><button class="jv-view-btn" data-view="table">Table</button></span>
@@ -186,22 +190,26 @@ async function init(): Promise<void> {
           </div>
           <div id="jv-theme-error"></div>
           <ul id="jv-custom-list"></ul>
+          <div class="jv-settings-row jv-settings-check">
+            <label for="jv-remember-query">Remember queries</label>
+            <input type="checkbox" id="jv-remember-query">
+          </div>
         </div>
       </div>
-    </div>
-    <div id="jv-search-panel" hidden>
-      <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false">
-      <span id="jv-search-status"></span>
-      <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
-      <button id="jv-search-next" title="Next result (Enter)">↓</button>
-      <button id="jv-search-clear" title="Close (Esc)">×</button>
-    </div>
-    <div id="jv-query-panel" hidden>
-      <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`].name" spellcheck="false" autocomplete="off">
-      <button id="jv-query-run" title="Run query (Enter)">Run</button>
-      <button id="jv-query-close" title="Close (Esc)">×</button>
-      <span id="jv-query-error" hidden></span>
-      <ul id="jv-query-suggest" hidden></ul>
+      <div id="jv-search-panel" hidden>
+        <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false">
+        <span id="jv-search-status"></span>
+        <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
+        <button id="jv-search-next" title="Next result (Enter)">↓</button>
+        <button id="jv-search-clear" title="Close (Esc)">×</button>
+      </div>
+      <div id="jv-query-panel" hidden>
+        <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`].name" spellcheck="false" autocomplete="off">
+        <button id="jv-query-run" title="Run query (Enter)">Run</button>
+        <button id="jv-query-close" title="Close (Esc)">×</button>
+        <span id="jv-query-error" hidden></span>
+        <ul id="jv-query-suggest" hidden></ul>
+      </div>
     </div>
     <div id="jv-content">
       <div id="jv-tree"></div>
@@ -215,6 +223,11 @@ async function init(): Promise<void> {
   const themeState = await loadThemeState();
   const originPrefs = await loadOriginPrefs(location.origin);
   const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
+  // Whether to remember the last query per origin. Global (like theme), since
+  // it's a personal preference, not a property of any one document. On by
+  // default; only an explicit "0" (the user toggled it off) disables it.
+  const rememberQueryStored = await chrome.storage.local.get({ [REMEMBER_QUERY_KEY]: "1" });
+  let rememberQuery = rememberQueryStored[REMEMBER_QUERY_KEY] !== "0";
 
   function allSchemes(): Base16Scheme[] {
     return [...BUILTIN_SCHEMES, ...themeState.customs];
@@ -296,11 +309,20 @@ async function init(): Promise<void> {
   // all), so restoring after a query puts the depth back where they left it.
   // Seeded from this origin's saved prefs.
   let originalLevelSelection: number | "all" | null = originPrefs.level ?? null;
+  // Recent JMESPath queries for this origin, most-recent-first. Seeded from
+  // saved prefs; mutated as queries run and pruned to RECENT_QUERY_CAP.
+  let recentQueries: string[] = (originPrefs.recentQueries ?? []).slice();
 
   // Persists the current view and last explicit level pick for this origin.
   function persistOriginPrefs(): void {
     const prefs: OriginPrefs = { view: currentView };
     if (originalLevelSelection !== null) prefs.level = originalLevelSelection;
+    // Persist queries only while "remember queries" is on; turning it off
+    // drops both the active query and the history on the next write.
+    if (rememberQuery) {
+      if (activeQueryResult !== null) prefs.query = activeQueryResult.expression;
+      if (recentQueries.length > 0) prefs.recentQueries = recentQueries.slice();
+    }
     saveOriginPrefs(prefs);
   }
 
@@ -669,8 +691,9 @@ async function init(): Promise<void> {
   const querySuggestList = document.getElementById("jv-query-suggest")!;
 
   function openSearchPanel(): void {
-    // The two panels occupy the same spot under the toolbar — one at a time.
+    // Only one popup at a time: close the query panel and settings menu.
     queryPanel.hidden = true;
+    closeSettingsMenu();
     searchPanel.hidden = false;
     searchInput.focus();
     searchInput.select();
@@ -787,7 +810,12 @@ async function init(): Promise<void> {
   // document, never a query-result swap. Suggestions are a capped prefix scan
   // over those keys plus a static function list — no jmespath parsing.
   let keyUniverse: string[] | null = null;
-  let suggestItems: string[] = [];
+  // The dropdown shows either contextual key suggestions (while typing) or the
+  // recent-query history (when the field is empty) — one mode at a time.
+  type SuggestEntry =
+    | ({ type: "key" } & KeySuggestion)
+    | { type: "recent"; query: string };
+  let suggestItems: SuggestEntry[] = [];
   let suggestActive = -1;
   let suggestTokenStart = 0;
 
@@ -802,13 +830,60 @@ async function init(): Promise<void> {
     suggestActive = -1;
   }
 
+  function renderKeyItem(item: HTMLLIElement, entry: { name: string; kind: ValueKind }): void {
+    const name = document.createElement("span");
+    name.className = "jv-query-suggest-name";
+    name.textContent = entry.name;
+    item.appendChild(name);
+    if (entry.kind === "array") {
+      // A badge marks array-valued keys so the user knows to bracket in.
+      const badge = document.createElement("span");
+      badge.className = "jv-query-suggest-badge";
+      badge.textContent = "[ ]";
+      item.appendChild(badge);
+    }
+  }
+
+  function renderRecentItem(item: HTMLLIElement, query: string): void {
+    item.classList.add("jv-query-suggest-recent");
+    const glyph = document.createElement("span");
+    glyph.className = "jv-query-suggest-glyph";
+    glyph.textContent = "↺";
+    glyph.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.className = "jv-query-suggest-name";
+    text.textContent = query;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "jv-query-suggest-del";
+    del.title = "Remove from history";
+    del.setAttribute("aria-label", `Remove ${query} from history`);
+    del.textContent = "×";
+    del.addEventListener("mousedown", (e) => {
+      // Stop the item's own mousedown (which would run the query) and the
+      // input blur, then drop just this entry.
+      e.preventDefault();
+      e.stopPropagation();
+      removeRecent(query);
+    });
+    item.append(glyph, text, del);
+  }
+
   function renderSuggest(): void {
     querySuggestList.replaceChildren();
-    suggestItems.forEach((text, i) => {
+    const recentsMode = suggestItems[0]?.type === "recent";
+    if (recentsMode) {
+      const header = document.createElement("li");
+      header.className = "jv-query-suggest-section";
+      header.textContent = "Recent queries";
+      querySuggestList.appendChild(header);
+    }
+    suggestItems.forEach((entry, i) => {
       const item = document.createElement("li");
       item.className = "jv-query-suggest-item";
       if (i === suggestActive) item.classList.add("jv-active");
-      item.textContent = text;
+      if (entry.type === "recent") renderRecentItem(item, entry.query);
+      else renderKeyItem(item, entry);
       item.addEventListener("mousedown", (e) => {
         // mousedown (not click) so the input never loses focus first.
         e.preventDefault();
@@ -821,15 +896,29 @@ async function init(): Promise<void> {
 
   function updateSuggest(): void {
     if (keyUniverse === null) return;
-    const caret = queryInput.selectionStart ?? queryInput.value.length;
-    const { token, start } = currentToken(queryInput.value, caret);
-    const results = suggest(token, keyUniverse, JMESPATH_FUNCTIONS);
-    if (results.length === 0) {
+    const value = queryInput.value;
+    // Empty field: surface the recent-query history (when remembering is on).
+    if (value.trim() === "") {
+      if (!rememberQuery || recentQueries.length === 0) {
+        hideSuggest();
+        return;
+      }
+      suggestTokenStart = 0;
+      suggestItems = recentQueries.map((query) => ({ type: "recent", query }));
+      suggestActive = 0;
+      renderSuggest();
+      return;
+    }
+    const caret = queryInput.selectionStart ?? value.length;
+    // Resolve suggestions against the ORIGINAL document, contextual to the path
+    // typed so far; keyUniverse is the flat fallback for unresolvable paths.
+    const { items, start } = suggestAt(value, caret, data, keyUniverse, JMESPATH_FUNCTIONS);
+    if (items.length === 0) {
       hideSuggest();
       return;
     }
     suggestTokenStart = start;
-    suggestItems = results;
+    suggestItems = items.map((i) => ({ type: "key", name: i.name, kind: i.kind }));
     suggestActive = 0;
     renderSuggest();
   }
@@ -842,13 +931,29 @@ async function init(): Promise<void> {
   }
 
   function acceptSuggest(index: number): void {
-    const chosen = suggestItems[index];
-    if (chosen === undefined) return;
+    const entry = suggestItems[index];
+    if (entry === undefined) return;
+    if (entry.type === "recent") {
+      // Re-run a past query: fill the input and execute it straight away.
+      queryInput.value = entry.query;
+      const end = entry.query.length;
+      queryInput.setSelectionRange(end, end);
+      hideSuggest();
+      queryInput.focus();
+      void runQueryExpression();
+      return;
+    }
+    const chosen = entry.name;
     const caret = queryInput.selectionStart ?? queryInput.value.length;
     const before = queryInput.value.slice(0, suggestTokenStart);
     const after = queryInput.value.slice(caret);
-    // Functions get an open paren for ergonomics; keys go in as-is.
-    const insertion = JMESPATH_FUNCTIONS.includes(chosen) ? `${chosen}(` : chosen;
+    // Functions get an open paren; array keys get a `[*]` projection so the
+    // user can immediately descend (`.`) or swap the `*` for an index/filter;
+    // plain keys go in as-is. The caret lands right after the insertion.
+    let insertion: string;
+    if (JMESPATH_FUNCTIONS.includes(chosen)) insertion = `${chosen}(`;
+    else if (entry.kind === "array") insertion = `${chosen}[*]`;
+    else insertion = chosen;
     queryInput.value = before + insertion + after;
     const newCaret = before.length + insertion.length;
     queryInput.setSelectionRange(newCaret, newCaret);
@@ -856,9 +961,26 @@ async function init(): Promise<void> {
     queryInput.focus();
   }
 
+  // History maintenance: most-recent-first, deduped, capped. Pushing is gated
+  // on the toggle; removing curates the list and re-renders the dropdown.
+  function pushRecentQuery(expression: string): void {
+    if (!rememberQuery) return;
+    recentQueries = [
+      expression,
+      ...recentQueries.filter((q) => q !== expression),
+    ].slice(0, RECENT_QUERY_CAP);
+  }
+
+  function removeRecent(query: string): void {
+    recentQueries = recentQueries.filter((q) => q !== query);
+    persistOriginPrefs();
+    updateSuggest();
+  }
+
   function openQueryPanel(): void {
-    // The two panels occupy the same spot under the toolbar — one at a time.
+    // Only one popup at a time: close the search panel and settings menu.
     closeSearchPanel();
+    closeSettingsMenu();
     // Build the key universe once, from the ORIGINAL document, on first open.
     if (keyUniverse === null) keyUniverse = collectKeyUniverse(model);
     queryPanel.hidden = false;
@@ -883,6 +1005,8 @@ async function init(): Promise<void> {
     resultSearchIndex = null;
     await mountTree(model, originalSearchIndex!);
     refreshTableForDocument();
+    // Cleared query: drop it from this origin's saved prefs.
+    persistOriginPrefs();
 
     // Put the depth back where the user had it before the query.
     if (originalLevelSelection !== null) clickLevelSelection(originalLevelSelection);
@@ -913,6 +1037,9 @@ async function init(): Promise<void> {
     resultSearchIndex = createSearchIndexFor(resultModel);
     await mountTree(resultModel, resultSearchIndex);
     refreshTableForDocument();
+    // Remember this query (and add it to history) for the origin when on.
+    pushRecentQuery(expression);
+    persistOriginPrefs();
   }
 
   queryToggleBtn.addEventListener("click", () => {
@@ -932,6 +1059,16 @@ async function init(): Promise<void> {
     void restoreOriginalTree();
   });
 
+  // Clicking the chip's text reopens the panel seeded with the active query so
+  // it can be edited and re-run (the ✕ button still clears).
+  queryChipText.addEventListener("click", () => {
+    if (activeQueryResult === null) return;
+    queryInput.value = activeQueryResult.expression;
+    openQueryPanel();
+    const end = queryInput.value.length;
+    queryInput.setSelectionRange(end, end);
+  });
+
   // "Query from here": translate the shown node path to JMESPath, seed the
   // input, open the panel and reuse the existing run path to render the result.
   pathQueryBtn.addEventListener("click", () => {
@@ -946,6 +1083,11 @@ async function init(): Promise<void> {
 
   queryInput.addEventListener("input", () => {
     updateSuggest();
+  });
+
+  queryInput.addEventListener("focus", () => {
+    // Surface recent queries when the field is empty; typing switches to keys.
+    if (queryInput.value.trim() === "") updateSuggest();
   });
 
   queryInput.addEventListener("blur", () => {
@@ -994,13 +1136,34 @@ async function init(): Promise<void> {
 
   const settingsToggle = document.getElementById("jv-settings-toggle")!;
   const settingsMenu = document.getElementById("jv-settings-menu")!;
+  function closeSettingsMenu(): void {
+    settingsMenu.classList.remove("jv-open");
+  }
   settingsToggle.addEventListener("click", () => {
+    const willOpen = !settingsMenu.classList.contains("jv-open");
     settingsMenu.classList.toggle("jv-open");
+    // Only one popup at a time: opening settings closes the search/query panels.
+    if (willOpen) {
+      closeSearchPanel();
+      closeQueryPanel();
+    }
   });
   document.addEventListener("click", (e) => {
     if (!(e.target as HTMLElement).closest("#jv-settings")) {
-      settingsMenu.classList.remove("jv-open");
+      closeSettingsMenu();
     }
+  });
+
+  const rememberQueryCheck = document.getElementById(
+    "jv-remember-query"
+  ) as HTMLInputElement;
+  rememberQueryCheck.checked = rememberQuery;
+  rememberQueryCheck.addEventListener("change", () => {
+    rememberQuery = rememberQueryCheck.checked;
+    void storageSet(REMEMBER_QUERY_KEY, rememberQuery ? "1" : "0");
+    // Persist now so toggling on saves the current query and toggling off
+    // drops it immediately.
+    persistOriginPrefs();
   });
 
   const themeSelect = document.getElementById("jv-theme-select") as HTMLSelectElement;
@@ -1143,6 +1306,13 @@ async function init(): Promise<void> {
     originalSearchIndex?.dispose();
     resultSearchIndex?.dispose();
   });
+
+  // Restore a remembered query for this origin: seed the input and run it. If
+  // it errors against changed data, the original document stays on screen.
+  if (rememberQuery && originPrefs.query) {
+    queryInput.value = originPrefs.query;
+    await runQueryExpression();
+  }
 
   injectPageData(raw);
 }

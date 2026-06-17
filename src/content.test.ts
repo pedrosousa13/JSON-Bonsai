@@ -371,6 +371,41 @@ test("eligible Table button carries no data-tip", async () => {
   expect(tip.dataset.tip).toBeUndefined();
 });
 
+// A chrome.storage.local stand-in that actually persists, so query-remember
+// round-trips (load → restore, toggle → save) can be observed in one process.
+function statefulChrome(initial: Record<string, unknown> = {}): Map<string, unknown> {
+  const store = new Map<string, unknown>(Object.entries(initial));
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (q: any) => {
+          if (typeof q === "string") return store.has(q) ? { [q]: store.get(q) } : {};
+          if (Array.isArray(q)) {
+            const out: Record<string, unknown> = {};
+            for (const k of q) if (store.has(k)) out[k] = store.get(k);
+            return out;
+          }
+          const out: Record<string, unknown> = {};
+          for (const [k, def] of Object.entries(q)) out[k] = store.has(k) ? store.get(k) : def;
+          return out;
+        }),
+        set: vi.fn(async (obj: Record<string, unknown>) => {
+          for (const [k, v] of Object.entries(obj)) store.set(k, v);
+        }),
+        remove: vi.fn(async (keys: string | string[]) => {
+          for (const k of ([] as string[]).concat(keys)) store.delete(k);
+        }),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+  return store;
+}
+
 function stubChrome(): void {
   (globalThis as any).chrome = {
     storage: {
@@ -487,4 +522,243 @@ test("query-from-here seeds the input with JMESPath and runs the query", async (
   );
   // Path display reference kept alive (chip lives in the toolbar, path bottom-left).
   expect(pathDisplay).not.toBeNull();
+});
+
+test("clicking the query chip reopens the editor seeded with the active query", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada" }],
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const chip = document.getElementById("jv-query-chip")!;
+  const chipText = document.getElementById("jv-query-chip-text")!;
+
+  // Run a query, then close the panel.
+  document.getElementById("jv-query-toggle")!.click();
+  queryInput.value = "users";
+  queryInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(chip.hidden).toBe(false);
+  document.getElementById("jv-query-close")!.click();
+  expect(queryPanel.hidden).toBe(true);
+
+  // Clicking the chip text reopens the panel with the query ready to edit.
+  chipText.click();
+  expect(queryPanel.hidden).toBe(false);
+  expect(queryInput.value).toBe("users");
+});
+
+test("a remembered query is restored and re-run on load", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { query: "users" },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada" }],
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  expect((document.getElementById("jv-remember-query") as HTMLInputElement).checked).toBe(true);
+  // The saved query ran automatically: chip shows it, input holds it.
+  expect(document.getElementById("jv-query-chip")!.hidden).toBe(false);
+  expect(document.getElementById("jv-query-chip-text")!.textContent).toBe("query: users");
+  expect((document.getElementById("jv-query-input") as HTMLInputElement).value).toBe("users");
+});
+
+test("remember-query is on by default; toggling off drops the saved query", async () => {
+  vi.resetModules();
+  const store = statefulChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada" }],
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const check = document.getElementById("jv-remember-query") as HTMLInputElement;
+  // Default on with nothing stored.
+  expect(check.checked).toBe(true);
+
+  // Running a query persists it automatically (writer debounce ~250ms).
+  document.getElementById("jv-query-toggle")!.click();
+  queryInput.value = "users";
+  queryInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const prefsKey = `jv-prefs:${location.origin}`;
+  expect((store.get(prefsKey) as { query?: string }).query).toBe("users");
+
+  // Toggling off persists the flag and drops the stored query.
+  check.click();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(store.get("jv-remember-query")).toBe("0");
+  expect((store.get(prefsKey) as { query?: string }).query).toBeUndefined();
+});
+
+test("recent queries appear in the dropdown on empty focus and re-run on pick", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: {
+      recentQueries: ["users[*].name", "settings"],
+    },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada" }],
+    settings: { theme: "dark" },
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const dropdown = document.getElementById("jv-query-suggest")!;
+  document.getElementById("jv-query-toggle")!.click();
+
+  // Focusing the empty field surfaces the history (most-recent-first) under a
+  // "Recent queries" section header.
+  queryInput.value = "";
+  queryInput.dispatchEvent(new FocusEvent("focus"));
+  expect(dropdown.querySelector(".jv-query-suggest-section")!.textContent).toBe(
+    "Recent queries"
+  );
+  const recents = Array.from(
+    dropdown.querySelectorAll(".jv-query-suggest-recent .jv-query-suggest-name")
+  ).map((el) => el.textContent);
+  expect(recents).toEqual(["users[*].name", "settings"]);
+
+  // Picking a recent fills the input and runs it (chip reflects the query).
+  (dropdown.querySelector(".jv-query-suggest-recent") as HTMLElement).dispatchEvent(
+    new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(queryInput.value).toBe("users[*].name");
+  expect(document.getElementById("jv-query-chip-text")!.textContent).toBe(
+    "query: users[*].name"
+  );
+});
+
+test("the remove button drops a single query from history", async () => {
+  vi.resetModules();
+  const store = statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentQueries: ["keep", "drop"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ keep: 1, drop: 2 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const dropdown = document.getElementById("jv-query-suggest")!;
+  document.getElementById("jv-query-toggle")!.click();
+  queryInput.dispatchEvent(new FocusEvent("focus"));
+
+  const dropBtn = Array.from(dropdown.querySelectorAll(".jv-query-suggest-recent"))
+    .find((li) => li.textContent?.includes("drop"))!
+    .querySelector(".jv-query-suggest-del") as HTMLElement;
+  dropBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // Removed from the live list and from storage; the kept one stays.
+  const names = Array.from(
+    dropdown.querySelectorAll(".jv-query-suggest-recent .jv-query-suggest-name")
+  ).map((el) => el.textContent);
+  expect(names).toEqual(["keep"]);
+  expect(
+    (store.get(`jv-prefs:${location.origin}`) as { recentQueries?: string[] }).recentQueries
+  ).toEqual(["keep"]);
+});
+
+test("autocomplete is contextual: a dot lists element keys, arrays get a badge", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada", role: "admin" }],
+    settings: { theme: "dark" },
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const dropdown = document.getElementById("jv-query-suggest")!;
+  document.getElementById("jv-query-toggle")!.click();
+
+  // A dot after an array projection lists ONLY the element keys, not the
+  // whole document — proof the suggestions are contextual.
+  queryInput.value = "users[*].";
+  queryInput.selectionStart = queryInput.value.length;
+  queryInput.dispatchEvent(new Event("input"));
+  const names = Array.from(
+    dropdown.querySelectorAll(".jv-query-suggest-name")
+  ).map((el) => el.textContent);
+  expect(names).toEqual(["name", "role"]);
+
+  // At top level, the array-valued key carries a [ ] badge; a scalar/object
+  // key does not.
+  queryInput.value = "us";
+  queryInput.selectionStart = 2;
+  queryInput.dispatchEvent(new Event("input"));
+  const usersItem = dropdown.querySelector(".jv-query-suggest-item")!;
+  expect(usersItem.querySelector(".jv-query-suggest-name")!.textContent).toBe(
+    "users"
+  );
+  expect(usersItem.querySelector(".jv-query-suggest-badge")).not.toBeNull();
+
+  // Accepting an array key inserts a [*] projection with the caret after it,
+  // ready to descend. (Accepting an object key inserts just the name.)
+  usersItem.dispatchEvent(
+    new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+  );
+  expect(queryInput.value).toBe("users[*]");
+  expect(queryInput.selectionStart).toBe("users[*]".length);
+});
+
+test("only one popup is open at a time across search, query, and settings", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const searchPanel = document.getElementById("jv-search-panel")!;
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const settingsMenu = document.getElementById("jv-settings-menu")!;
+  const searchToggle = document.getElementById("jv-search-toggle")!;
+  const queryToggle = document.getElementById("jv-query-toggle")!;
+  const settingsToggle = document.getElementById("jv-settings-toggle")!;
+
+  // Open the query panel.
+  queryToggle.click();
+  expect(queryPanel.hidden).toBe(false);
+
+  // Opening settings closes the query panel.
+  settingsToggle.click();
+  expect(settingsMenu.classList.contains("jv-open")).toBe(true);
+  expect(queryPanel.hidden).toBe(true);
+
+  // Opening search closes the settings menu.
+  searchToggle.click();
+  expect(searchPanel.hidden).toBe(false);
+  expect(settingsMenu.classList.contains("jv-open")).toBe(false);
+
+  // Opening query closes the search panel.
+  queryToggle.click();
+  expect(queryPanel.hidden).toBe(false);
+  expect(searchPanel.hidden).toBe(true);
 });

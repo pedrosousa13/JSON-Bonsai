@@ -236,14 +236,27 @@ html:has(#jv-root) {
 }
 
 .jv-query-suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 3px 8px;
   font-size: 12px;
   color: var(--text);
   border-radius: 3px;
   cursor: pointer;
-  white-space: nowrap;
+}
+
+.jv-query-suggest-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jv-query-suggest-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 .jv-query-suggest-item:hover {
@@ -252,6 +265,65 @@ html:has(#jv-root) {
 
 .jv-query-suggest-item.jv-active {
   background: var(--accent);
+  color: var(--bg);
+}
+
+.jv-query-suggest-item.jv-active .jv-query-suggest-badge {
+  color: var(--bg);
+}
+
+/* History section: a small label, then recent-query rows with a replay glyph
+   and a hover-revealed remove button. */
+.jv-query-suggest-section {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.jv-query-suggest-recent .jv-query-suggest-name {
+  flex: 1 1 auto;
+}
+
+.jv-query-suggest-glyph {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.jv-query-suggest-item.jv-active .jv-query-suggest-glyph {
+  color: var(--bg);
+}
+
+.jv-query-suggest-del {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.jv-query-suggest-item:hover .jv-query-suggest-del,
+.jv-query-suggest-item.jv-active .jv-query-suggest-del {
+  opacity: 1;
+}
+
+.jv-query-suggest-del:hover {
+  background: var(--btn-hover);
+  color: var(--error);
+}
+
+.jv-query-suggest-item.jv-active .jv-query-suggest-del {
   color: var(--bg);
 }
 
@@ -275,6 +347,13 @@ html:has(#jv-root) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Readable contrast on the toolbar (the muted chip border stays subtle). */
+  color: var(--text);
+  cursor: pointer;
+}
+
+#jv-query-chip-text:hover {
+  text-decoration: underline;
 }
 
 #jv-toolbar #jv-query-chip-clear {
@@ -315,8 +394,8 @@ html:has(#jv-root) {
   flex: 1 1 0;
   min-height: 0;
   padding: 16px;
-  /* Clear the fixed path/copy bar so the last lines stay readable at full scroll. */
-  padding-bottom: 56px;
+  /* Clear the fixed path/copy bar (≈44px tall) at full scroll, with room to spare. */
+  padding-bottom: 80px;
   overflow: auto;
   position: relative;
 }
@@ -643,6 +722,11 @@ html:has(#jv-root) {
   color: var(--text-muted);
 }
 
+.jv-table-cell.jv-table-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 #jv-path-display {
   position: fixed;
   left: 16px;
@@ -831,6 +915,18 @@ html:has(#jv-root) {
   font-size: 12px;
   color: var(--text);
   margin-bottom: 8px;
+}
+
+.jv-settings-check {
+  margin-bottom: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.jv-settings-check input {
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 #jv-settings-menu select {

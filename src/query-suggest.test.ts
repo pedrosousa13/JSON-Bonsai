@@ -5,6 +5,7 @@ import {
   collectKeyUniverse,
   currentToken,
   suggest,
+  suggestAt,
   toJmespath,
 } from "./query-suggest";
 
@@ -121,6 +122,89 @@ describe("JMESPATH_FUNCTIONS", () => {
     for (const fn of ["length", "keys", "sort_by", "map", "to_string"]) {
       expect(JMESPATH_FUNCTIONS).toContain(fn);
     }
+  });
+});
+
+describe("suggestAt", () => {
+  const doc = {
+    users: [
+      { name: "Ada", role: "admin", tags: ["x"] },
+      { name: "Grace", role: "user" },
+    ],
+    settings: { theme: "dark", nested: { deep: 1 } },
+    count: 2,
+  };
+  // A sentinel universe so a fall-back to the flat list is unmistakable.
+  const UNIVERSE = ["U_one", "U_two"];
+  const at = (text: string, caret = text.length) =>
+    suggestAt(text, caret, doc, UNIVERSE, JMESPATH_FUNCTIONS);
+  const names = (text: string, caret = text.length) =>
+    at(text, caret).items.map((i) => i.name);
+
+  test("a trailing dot dumps the contextual keys", () => {
+    expect(names("settings.")).toEqual(["theme", "nested"]);
+  });
+
+  test("dot after an array projection lists the element keys (union)", () => {
+    expect(names("users[*].")).toEqual(["name", "role", "tags"]);
+  });
+
+  test("dot after an array index lists that element's keys", () => {
+    expect(names("users[0].")).toEqual(["name", "role", "tags"]);
+  });
+
+  test("dot then a prefix filters the contextual keys", () => {
+    expect(names("users[*].na")).toEqual(["name"]);
+  });
+
+  test("nested member access resolves through objects", () => {
+    expect(names("settings.nested.")).toEqual(["deep"]);
+  });
+
+  test("a scalar context offers nothing (no member keys)", () => {
+    expect(names("count.")).toEqual([]);
+  });
+
+  test("top-level prefix matches root keys, tagging each value's kind", () => {
+    expect(at("us").items).toEqual([{ name: "users", kind: "array" }]);
+    expect(at("se").items).toEqual([{ name: "settings", kind: "object" }]);
+    // 'co' also matches the contains() function — keys come first, then funcs.
+    expect(at("co").items).toContainEqual({ name: "count", kind: "scalar" });
+    expect(names("co")).toEqual(["count", "contains"]);
+  });
+
+  test("functions are offered at top level but not after a dot", () => {
+    expect(names("len")).toContain("length");
+    expect(names("users[*].len")).toEqual([]);
+  });
+
+  test("an open filter predicate lists the array's element keys", () => {
+    expect(names("users[?")).toEqual(["name", "role", "tags"]);
+    expect(names("users[?ro")).toEqual(["role"]);
+  });
+
+  test("an empty top-level token never dumps the universe", () => {
+    expect(at("").items).toEqual([]);
+  });
+
+  test("a numeric bracket position offers nothing", () => {
+    expect(names("users[0")).toEqual([]);
+  });
+
+  test("reports the token start so the caller can splice the accepted token", () => {
+    expect(at("users[*].na").start).toBe(9);
+  });
+
+  test("unresolvable expression falls back to the flat universe", () => {
+    // settings is an object, so a filter projection can't resolve → fallback.
+    expect(names("settings[?x].")).toEqual(["U_one", "U_two"]);
+  });
+
+  test("the array-key badge is reliable, never guessed", () => {
+    // 'tags' is an array on element objects; 'name' is a string.
+    const items = at("users[*].").items;
+    expect(items).toContainEqual({ name: "tags", kind: "array" });
+    expect(items).toContainEqual({ name: "name", kind: "scalar" });
   });
 });
 

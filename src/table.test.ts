@@ -140,6 +140,35 @@ describe("createTableView", () => {
     expect(second[2].textContent).toBe("–");
   });
 
+  test("an empty string is marked, distinct from null and missing", () => {
+    const container = createContainer();
+    createTableView(container, [
+      { a: "", b: null },
+      {},
+    ]);
+    const rows = container.querySelectorAll(".jv-table-row");
+    const first = rows[0].querySelectorAll(".jv-table-cell");
+    // Empty string: visible marker, not a blank cell.
+    expect(first[1].className).toContain("jv-table-empty");
+    expect(first[1].textContent).toBe('""');
+    // null stays "null", a wholly-absent key stays "–".
+    expect(first[2].className).toContain("jv-null");
+    expect(first[2].textContent).toBe("null");
+    const second = rows[1].querySelectorAll(".jv-table-cell");
+    expect(second[1].className).toContain("jv-table-missing");
+    expect(second[1].textContent).toBe("–");
+  });
+
+  test("a non-object empty-string element shows the marked cell", () => {
+    // Mirrors a projection like body[*].design where one element is "".
+    const container = createContainer();
+    createTableView(container, [{ k: 1 }, { k: 2 }, { k: 3 }, { k: 4 }, ""]);
+    const rows = container.querySelectorAll(".jv-table-row");
+    const last = rows[4].querySelectorAll(".jv-table-cell");
+    expect(last[1].className).toContain("jv-table-empty");
+    expect(last[1].textContent).toBe('""');
+  });
+
   test("header click cycles asc, desc, none", () => {
     const container = createContainer();
     createTableView(container, [{ n: 2 }, { n: 3 }, { n: 1 }]);
