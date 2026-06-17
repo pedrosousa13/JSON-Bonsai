@@ -25,7 +25,7 @@ const rawJSON = (JSON as { rawJSON?: (text: string) => unknown }).rawJSON;
 
 let reviverSourceSupport: boolean | null = null;
 
-function supportsReviverSource(): boolean {
+export function supportsReviverSource(): boolean {
   if (reviverSourceSupport === null) {
     let seen: string | undefined;
     parseWithSource("0", (_key, value, context) => {
@@ -70,6 +70,31 @@ export function numberLosesPrecision(source: string, value: number): boolean {
   return canonicalNumber(source) !== canonicalNumber(String(value));
 }
 
+// Parses `raw` (assuming reviver source support), recording lossy number
+// tokens into `into`. Keyed by holder identity, so writing several independent
+// parses into one shared map never collides — distinct parses produce distinct
+// holders.
+export function parseIntoExactNumbers(
+  raw: string,
+  into: ExactNumberMap
+): JsonValue {
+  return parseWithSource(raw, function (key, value, context) {
+    if (
+      typeof value === "number" &&
+      typeof context?.source === "string" &&
+      numberLosesPrecision(context.source, value)
+    ) {
+      let perHolder = into.get(this);
+      if (!perHolder) {
+        perHolder = new Map();
+        into.set(this, perHolder);
+      }
+      perHolder.set(key, context.source);
+    }
+    return value;
+  });
+}
+
 // JSON.parse that also reports which number tokens lost precision, keyed by
 // their holder so callers can resolve them while walking the parsed data. On
 // engines without reviver source access this degrades to a plain parse
@@ -83,21 +108,7 @@ export function parseWithExactNumbers(raw: string): {
   }
 
   const exactNumbers: ExactNumberMap = new WeakMap();
-  const data = parseWithSource(raw, function (key, value, context) {
-    if (
-      typeof value === "number" &&
-      typeof context?.source === "string" &&
-      numberLosesPrecision(context.source, value)
-    ) {
-      let perHolder = exactNumbers.get(this);
-      if (!perHolder) {
-        perHolder = new Map();
-        exactNumbers.set(this, perHolder);
-      }
-      perHolder.set(key, context.source);
-    }
-    return value;
-  });
+  const data = parseIntoExactNumbers(raw, exactNumbers);
   return { data, exactNumbers };
 }
 
