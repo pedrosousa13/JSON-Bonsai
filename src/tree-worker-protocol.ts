@@ -17,6 +17,10 @@ export interface WorkerSearchMessage {
   type: "search";
   requestId: number;
   query: string;
+  // When true the query is treated as a case-insensitive regex (see
+  // tree-search.ts). The query is then passed through verbatim rather than
+  // trimmed/lowercased.
+  regex: boolean;
 }
 
 interface WorkerSearchResultMessage {

@@ -23,9 +23,13 @@ function nextTask(): Promise<void> {
 
 async function runSearch(message: WorkerSearchMessage): Promise<void> {
   latestRequestId = message.requestId;
-  const normalizedQuery = message.query.trim().toLowerCase();
+  // Regex queries are matched verbatim; substring queries are normalized.
+  const query = message.regex ? message.query : message.query.trim().toLowerCase();
 
-  if (!normalizedQuery) {
+  // An empty substring query has no matches; skip iterating every batch.
+  // (Regex matching is left to collectTreeSearchMatches, which also handles
+  // invalid patterns by returning no matches.)
+  if (!message.regex && !query) {
     self.postMessage({
       type: "search-result",
       requestId: message.requestId,
@@ -41,7 +45,9 @@ async function runSearch(message: WorkerSearchMessage): Promise<void> {
     if (message.requestId !== latestRequestId) return;
 
     const end = Math.min(start + WORKER_SEARCH_BATCH_SIZE, total);
-    const batch = collectTreeSearchMatches(searchNodes, normalizedQuery, start, end);
+    const batch = collectTreeSearchMatches(searchNodes, query, start, end, {
+      regex: message.regex,
+    });
     for (let index = 0; index < batch.length; index += 1) matches.push(batch[index]);
 
     if (end < total) await nextTask();

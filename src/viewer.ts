@@ -246,6 +246,7 @@ export interface TreeSearchState {
   query: string;
   matchCount: number;
   activeIndex: number;
+  regex: boolean;
 }
 
 export interface TreeViewController {
@@ -254,7 +255,7 @@ export interface TreeViewController {
   expandAll: () => Promise<void>;
   toggleNode: (nodeId: number) => Promise<void>;
   toggleAllChildren: (nodeId: number) => Promise<void>;
-  search: (query: string) => Promise<TreeSearchState>;
+  search: (query: string, regex?: boolean) => Promise<TreeSearchState>;
   stepSearch: (delta: number) => Promise<TreeSearchState>;
   clearSearch: () => Promise<TreeSearchState>;
   getSearchState: () => TreeSearchState;
@@ -480,6 +481,7 @@ export function createTreeView(
   let searchMatchSet = new Set<number>();
   let activeSearchIndex = -1;
   let searchQuery = "";
+  let searchRegex = false;
   let preSearchExpandedSnapshot: Uint8Array | null = null;
   let pendingScrollNodeId: number | null = null;
   let renderScheduled = false;
@@ -497,6 +499,7 @@ export function createTreeView(
       query: searchQuery,
       matchCount: searchMatches.length,
       activeIndex: activeSearchIndex,
+      regex: searchRegex,
     };
   }
 
@@ -752,10 +755,11 @@ export function createTreeView(
       renderWindow();
     },
 
-    async search(query: string): Promise<TreeSearchState> {
-      const normalizedQuery = query.trim().toLowerCase();
+    async search(query: string, regex = false): Promise<TreeSearchState> {
+      // Regex queries pass through verbatim; substring queries are normalized.
+      const effectiveQuery = regex ? query : query.trim().toLowerCase();
 
-      if (!normalizedQuery) {
+      if (!effectiveQuery) {
         return controller.clearSearch();
       }
 
@@ -764,10 +768,11 @@ export function createTreeView(
       }
 
       searchQuery = query;
+      searchRegex = regex;
       searchToken += 1;
       const token = searchToken;
       options?.onRenderStateChange?.("Searching...");
-      const matches = await searchIndex.search(normalizedQuery);
+      const matches = await searchIndex.search(effectiveQuery, { regex });
 
       if (token !== searchToken) {
         return currentSearchState();
@@ -797,6 +802,7 @@ export function createTreeView(
     async clearSearch(): Promise<TreeSearchState> {
       searchToken += 1;
       searchQuery = "";
+      searchRegex = false;
       searchMatches = [];
       searchMatchSet = new Set();
       activeSearchIndex = -1;

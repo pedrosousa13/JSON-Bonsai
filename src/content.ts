@@ -5,6 +5,7 @@ import {
   createLocalTreeSearchIndex,
   type TreeSearchIndex,
 } from "./tree-worker-client";
+import { compileSearchRegex } from "./tree-search";
 import { toJsonSchema } from "./schema";
 import {
   BUILTIN_SCHEMES,
@@ -198,6 +199,7 @@ async function init(): Promise<void> {
       <div id="jv-search-panel" hidden>
         <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false" list="jv-search-history" autocomplete="off">
         <datalist id="jv-search-history"></datalist>
+        <button id="jv-search-regex" type="button" aria-pressed="false" title="Regex search (case-insensitive)">.*</button>
         <span id="jv-search-status"></span>
         <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
         <button id="jv-search-next" title="Next result (Enter)">↓</button>
@@ -273,6 +275,7 @@ async function init(): Promise<void> {
   const pathQueryBtn = document.getElementById("jv-path-query")!;
   const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
   const searchHistoryList = document.getElementById("jv-search-history")!;
+  const searchRegexBtn = document.getElementById("jv-search-regex") as HTMLButtonElement;
   const searchStatus = document.getElementById("jv-search-status")!;
   const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
   const searchNextBtn = document.getElementById("jv-search-next") as HTMLButtonElement;
@@ -297,6 +300,9 @@ async function init(): Promise<void> {
   // scroll offset across switches.
   const viewScrollTops: Record<string, number> = {};
   let searchTimer: number | null = null;
+  // Regex mode applies to tree search only; the table filter stays substring.
+  let searchRegexEnabled = false;
+  let searchRegexError = false;
   let activeQueryResult: { expression: string; result: JsonValue } | null = null;
   let tableView: TableViewController | null = null;
 
@@ -424,6 +430,7 @@ async function init(): Promise<void> {
       searchTimer = null;
     }
     searchInput.value = "";
+    searchRegexError = false;
     updateSearchUi();
   }
 
@@ -641,6 +648,15 @@ async function init(): Promise<void> {
       return;
     }
 
+    if (searchRegexError) {
+      searchStatus.textContent = "Invalid regex";
+      searchStatus.classList.add("jv-search-error");
+      searchPrevBtn.disabled = true;
+      searchNextBtn.disabled = true;
+      return;
+    }
+    searchStatus.classList.remove("jv-search-error");
+
     const state = treeView.getSearchState();
 
     if (!state.query) {
@@ -659,9 +675,19 @@ async function init(): Promise<void> {
   async function runSearch(query: string) {
     searchTimer = null;
     if (currentView === "table" && tableView !== null) {
+      // The table filter is substring-only; regex mode applies to the tree.
       tableView.setFilter(query);
     } else {
-      await treeView.search(query);
+      // Validate the regex client-side first so an invalid pattern shows an
+      // inline error and never reaches the worker.
+      if (searchRegexEnabled && query && compileSearchRegex(query) === null) {
+        searchRegexError = true;
+        await treeView.clearSearch();
+        updateSearchUi();
+        return;
+      }
+      searchRegexError = false;
+      await treeView.search(query, searchRegexEnabled);
     }
     updateSearchUi();
   }
@@ -735,6 +761,7 @@ async function init(): Promise<void> {
 
   function closeSearchPanel(): void {
     searchPanel.hidden = true;
+    searchRegexError = false;
     if (searchTimer !== null) {
       window.clearTimeout(searchTimer);
       searchTimer = null;
@@ -780,6 +807,15 @@ async function init(): Promise<void> {
 
   searchInput.addEventListener("search", () => {
     void commitSearch(searchInput.value);
+  });
+
+  searchRegexBtn.addEventListener("click", () => {
+    searchRegexEnabled = !searchRegexEnabled;
+    searchRegexBtn.setAttribute("aria-pressed", String(searchRegexEnabled));
+    searchRegexBtn.classList.toggle("jv-active", searchRegexEnabled);
+    // Re-run with the new mode so toggling updates matches immediately.
+    void commitSearch(searchInput.value);
+    searchInput.focus();
   });
 
   searchPrevBtn.addEventListener("click", () => {
