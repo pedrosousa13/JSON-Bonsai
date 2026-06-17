@@ -190,13 +190,14 @@ async function init(): Promise<void> {
           <div id="jv-theme-error"></div>
           <ul id="jv-custom-list"></ul>
           <div class="jv-settings-row jv-settings-check">
-            <label for="jv-remember-query">Remember queries</label>
+            <label for="jv-remember-query">Remember queries &amp; searches</label>
             <input type="checkbox" id="jv-remember-query">
           </div>
         </div>
       </div>
       <div id="jv-search-panel" hidden>
-        <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false">
+        <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false" list="jv-search-history" autocomplete="off">
+        <datalist id="jv-search-history"></datalist>
         <span id="jv-search-status"></span>
         <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
         <button id="jv-search-next" title="Next result (Enter)">↓</button>
@@ -271,6 +272,7 @@ async function init(): Promise<void> {
   const pathCopyBtn = document.getElementById("jv-path-copy")!;
   const pathQueryBtn = document.getElementById("jv-path-query")!;
   const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchHistoryList = document.getElementById("jv-search-history")!;
   const searchStatus = document.getElementById("jv-search-status")!;
   const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
   const searchNextBtn = document.getElementById("jv-search-next") as HTMLButtonElement;
@@ -369,6 +371,8 @@ async function init(): Promise<void> {
   // Recent JMESPath queries for this origin, most-recent-first. Seeded from
   // saved prefs; mutated as queries run and pruned to RECENT_QUERY_CAP.
   let recentQueries: string[] = (originPrefs.recentQueries ?? []).slice();
+  // Recent search terms for this origin (native datalist on the search input).
+  let recentSearches: string[] = (originPrefs.recentSearches ?? []).slice();
 
   // Persists the current view and last explicit level pick for this origin.
   function persistOriginPrefs(): void {
@@ -379,6 +383,7 @@ async function init(): Promise<void> {
     if (rememberQuery) {
       if (activeQueryResult !== null) prefs.query = activeQueryResult.expression;
       if (recentQueries.length > 0) prefs.recentQueries = recentQueries.slice();
+      if (recentSearches.length > 0) prefs.recentSearches = recentSearches.slice();
     }
     saveOriginPrefs(prefs);
   }
@@ -661,11 +666,37 @@ async function init(): Promise<void> {
     updateSearchUi();
   }
 
+  // Mirrors the saved search terms into the input's native <datalist>
+  // (empty while "remember" is off, so history stays hidden).
+  function renderSearchHistory(): void {
+    searchHistoryList.replaceChildren();
+    if (!rememberQuery) return;
+    for (const term of recentSearches) {
+      const option = document.createElement("option");
+      option.value = term;
+      searchHistoryList.appendChild(option);
+    }
+  }
+
+  function pushRecentSearch(query: string): void {
+    const term = query.trim();
+    if (!rememberQuery || term === "") return;
+    recentSearches = [term, ...recentSearches.filter((q) => q !== term)].slice(
+      0,
+      RECENT_QUERY_CAP
+    );
+    renderSearchHistory();
+    persistOriginPrefs();
+  }
+
+  renderSearchHistory();
+
   async function commitSearch(query: string) {
     if (searchTimer !== null) {
       window.clearTimeout(searchTimer);
       searchTimer = null;
     }
+    pushRecentSearch(query);
     await runSearch(query);
   }
 
@@ -1164,6 +1195,7 @@ async function init(): Promise<void> {
   rememberQueryCheck.addEventListener("change", () => {
     rememberQuery = rememberQueryCheck.checked;
     void storageSet(REMEMBER_QUERY_KEY, rememberQuery ? "1" : "0");
+    renderSearchHistory();
     // Persist now so toggling on saves the current query and toggling off
     // drops it immediately.
     persistOriginPrefs();

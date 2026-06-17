@@ -11,6 +11,8 @@ export interface OriginPrefs {
   query?: string;
   /** Recent JMESPath queries, most-recent-first; persisted with the toggle. */
   recentQueries?: string[];
+  /** Recent search terms, most-recent-first; persisted with the toggle. */
+  recentSearches?: string[];
 }
 
 const KEY_PREFIX = "jv-prefs:";
@@ -46,6 +48,12 @@ export async function loadOriginPrefs(origin: string): Promise<OriginPrefs> {
         (q): q is string => typeof q === "string"
       );
       if (recents.length > 0) prefs.recentQueries = recents;
+    }
+    if (Array.isArray(raw.recentSearches)) {
+      const recents = raw.recentSearches.filter(
+        (q): q is string => typeof q === "string"
+      );
+      if (recents.length > 0) prefs.recentSearches = recents;
     }
     return prefs;
   } catch {

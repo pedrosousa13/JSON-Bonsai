@@ -782,6 +782,49 @@ test("the large-doc note lives in a dismissible bar, not the toolbar", async () 
   expect(notice.hidden).toBe(true);
 });
 
+test("committing a search saves it to the search-history datalist", async () => {
+  vi.resetModules();
+  const store = statefulChrome(); // remember on by default
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ alpha: 1, beta: 2 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const datalist = document.getElementById("jv-search-history")!;
+  document.getElementById("jv-search-toggle")!.click();
+
+  // Enter commits the search → it lands in the datalist and in storage.
+  searchInput.value = "alpha";
+  searchInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const opts = Array.from(datalist.querySelectorAll("option")).map((o) => o.value);
+  expect(opts).toContain("alpha");
+  expect(
+    (store.get(`jv-prefs:${location.origin}`) as { recentSearches?: string[] }).recentSearches
+  ).toContain("alpha");
+});
+
+test("a remembered search history populates the datalist on load", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentSearches: ["foo", "bar"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const opts = Array.from(
+    document.getElementById("jv-search-history")!.querySelectorAll("option")
+  ).map((o) => o.value);
+  expect(opts).toEqual(["foo", "bar"]);
+});
+
 test("only one popup is open at a time across search, query, and settings", async () => {
   vi.resetModules();
   stubChrome();

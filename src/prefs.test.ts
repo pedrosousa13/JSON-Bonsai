@@ -86,6 +86,27 @@ test("recentQueries round-trip; non-string entries are filtered out", async () =
   });
 });
 
+test("recentSearches round-trip; non-string entries are filtered out", async () => {
+  const store = installMockStorage();
+  const write = createOriginPrefsWriter("https://api.example.com");
+
+  write({ view: "tree", recentSearches: ["ada", "grace"] });
+  await vi.runAllTimersAsync();
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    recentSearches: ["ada", "grace"],
+  });
+
+  store["jv-prefs:https://api.example.com"] = {
+    view: "tree",
+    recentSearches: ["ok", 0, false, "fine"],
+  };
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    recentSearches: ["ok", "fine"],
+  });
+});
+
 test("prefs are keyed per origin", async () => {
   const store = installMockStorage();
   const writeA = createOriginPrefsWriter("https://a.example.com");

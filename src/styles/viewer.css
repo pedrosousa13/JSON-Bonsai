@@ -418,6 +418,12 @@ html:has(#jv-root) {
   transition: background 0.1s;
 }
 
+/* Center the label and the shortcut badge instead of baseline-aligning them. */
+#jv-copy {
+  display: inline-flex;
+  align-items: center;
+}
+
 #jv-toolbar button:hover {
   background: var(--btn-hover);
 }
