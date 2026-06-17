@@ -661,6 +661,28 @@ html:has(#jv-root) {
   font-style: italic;
 }
 
+.jv-table-export {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.jv-table-export-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--btn-bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.jv-table-export-btn:hover {
+  background: var(--btn-hover);
+}
+
 .jv-table-header {
   position: sticky;
   top: 0;
