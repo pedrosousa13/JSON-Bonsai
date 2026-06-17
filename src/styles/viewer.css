@@ -72,14 +72,71 @@ html:has(#jv-root) {
   margin-right: auto;
 }
 
+/* Depth stepper: − value + as a single segmented control. */
+#jv-levels {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+#jv-toolbar #jv-level-dec,
+#jv-toolbar #jv-level-inc {
+  border: none;
+  border-radius: 0;
+  padding: 2px 9px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#jv-level-value {
+  min-width: 2.4ch;
+  padding: 0 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text);
+  border-inline: 1px solid var(--border);
+  user-select: none;
+}
+
+/* Status / large-doc notice: a dismissible strip below the toolbar. */
+#jv-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+#jv-notice[hidden] {
+  display: none;
+}
+
 #jv-render-status {
+  flex: 1 1 auto;
   color: var(--text-muted);
   font-size: 12px;
 }
 
-#jv-levels {
-  display: flex;
-  gap: 2px;
+#jv-notice-close {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#jv-notice-close:hover {
+  background: var(--btn-hover);
+  color: var(--text);
 }
 
 #jv-search-panel {

@@ -166,7 +166,11 @@ async function init(): Promise<void> {
     <div id="jv-toolbar">
       <span id="jv-info"></span>
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-query" title="Query from here">Query</button><button id="jv-path-copy" title="Copy path">Copy</button></span>
-      <div id="jv-levels"></div>
+      <div id="jv-levels" role="group" aria-label="Expansion depth">
+        <button id="jv-level-dec" title="Collapse one level">−</button>
+        <span id="jv-level-value" title="Expansion depth — keys 1–8, 0 for all">All</span>
+        <button id="jv-level-inc" title="Expand one level (0 for all)">+</button>
+      </div>
       <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
       <button id="jv-query-toggle" title="Query (JMESPath) (Q)">ƒ</button>
       <span id="jv-query-chip" hidden><span id="jv-query-chip-text" title="Edit query"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
@@ -177,7 +181,6 @@ async function init(): Promise<void> {
         <button class="jv-view-btn" data-view="raw">Raw</button>
         <button class="jv-view-btn" data-view="schema">Schema</button>
       </div>
-      <span id="jv-render-status"></span>
       <button id="jv-copy"><span class="jv-copy-label">Copy JSON</span><kbd class="jv-kbd">C</kbd></button>
       <div id="jv-settings">
         <button id="jv-settings-toggle" title="Settings">⚙</button>
@@ -210,6 +213,10 @@ async function init(): Promise<void> {
         <span id="jv-query-error" hidden></span>
         <ul id="jv-query-suggest" hidden></ul>
       </div>
+    </div>
+    <div id="jv-notice" hidden>
+      <span id="jv-render-status"></span>
+      <button id="jv-notice-close" title="Dismiss">×</button>
     </div>
     <div id="jv-content">
       <div id="jv-tree"></div>
@@ -276,8 +283,12 @@ async function init(): Promise<void> {
   // whether the panel is open.
   const searchPanel = document.getElementById("jv-search-panel")!;
   const info = document.getElementById("jv-info")!;
-  const levelsContainer = document.getElementById("jv-levels")!;
+  const levelDecBtn = document.getElementById("jv-level-dec") as HTMLButtonElement;
+  const levelValue = document.getElementById("jv-level-value")!;
+  const levelIncBtn = document.getElementById("jv-level-inc") as HTMLButtonElement;
   const renderStatus = document.getElementById("jv-render-status")!;
+  const notice = document.getElementById("jv-notice")!;
+  const noticeClose = document.getElementById("jv-notice-close")!;
   const content = document.getElementById("jv-content")!;
   const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
   const views: Record<string, HTMLElement> = { tree, table: tableEl, formatted: formattedEl, raw: rawEl, schema: schemaEl };
@@ -297,7 +308,56 @@ async function init(): Promise<void> {
     return activeQueryResult !== null ? activeQueryResult.result : data;
   }
 
-  renderStatus.textContent = "Indexing JSON...";
+  // Render-status / large-doc notice lives in a dismissible bar below the
+  // toolbar (not wedged among the controls). New text re-shows the bar; the
+  // ✕ hides it until the next distinct message.
+  let noticeDismissed = false;
+  let lastStatus = "";
+  function setRenderStatus(message: string): void {
+    if (message !== lastStatus) noticeDismissed = false;
+    lastStatus = message;
+    renderStatus.textContent = message;
+    notice.hidden = message === "" || noticeDismissed;
+  }
+  noticeClose.addEventListener("click", () => {
+    noticeDismissed = true;
+    notice.hidden = true;
+  });
+
+  // Expansion-depth stepper state. `maxTreeDepth` is the current tree's depth;
+  // `currentLevel` is the active selection (a number, or "all" = fully open).
+  let maxTreeDepth = 1;
+  let currentLevel: number | "all" = "all";
+
+  function renderLevelControl(): void {
+    levelValue.textContent = currentLevel === "all" ? "All" : String(currentLevel);
+    levelDecBtn.disabled = currentLevel !== "all" && currentLevel <= 1;
+    levelIncBtn.disabled = currentLevel === "all";
+  }
+
+  // The single path for every depth change (stepper, keyboard, restore). Skips
+  // persistence while a query result is showing or when restoring saved prefs.
+  function applyLevel(selection: number | "all", persist = true): void {
+    currentLevel = selection === "all" ? "all" : Math.max(1, Math.min(selection, maxTreeDepth));
+    if (currentLevel === "all") void treeView.expandAll();
+    else void treeView.collapseToLevel(currentLevel);
+    renderLevelControl();
+    if (persist && activeQueryResult === null) {
+      originalLevelSelection = currentLevel;
+      persistOriginPrefs();
+    }
+  }
+
+  levelDecBtn.addEventListener("click", () => {
+    const n = currentLevel === "all" ? maxTreeDepth : currentLevel;
+    applyLevel(Math.max(1, n - 1));
+  });
+  levelIncBtn.addEventListener("click", () => {
+    if (currentLevel === "all") return;
+    applyLevel(currentLevel + 1 >= maxTreeDepth ? "all" : currentLevel + 1);
+  });
+
+  setRenderStatus("Indexing JSON...");
   const model = buildTreeModel(data, exactNumbers);
   let treeView!: TreeViewController;
   let treeMounted = false;
@@ -347,14 +407,14 @@ async function init(): Promise<void> {
       scrollContainer: content,
       searchIndex,
       onRenderStateChange(message) {
-        renderStatus.textContent = message;
+        setRenderStatus(message);
       },
     });
 
     const { maxDepth, totalNodes } = treeView.getStats();
     info.textContent = `${totalNodes} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
     await treeView.render();
-    buildLevelButtons(maxDepth, initialExpansionDepth);
+    syncLevelControl(maxDepth, initialExpansionDepth);
 
     // The previous view's search state is gone with it; reset the search UI.
     if (searchTimer !== null) {
@@ -365,74 +425,22 @@ async function init(): Promise<void> {
     updateSearchUi();
   }
 
-  function buildLevelButtons(
+  // Point the depth stepper at the freshly-mounted tree: set its range, apply
+  // the initial selection (a large-doc partial expansion, else fully open),
+  // and surface the large-doc note in the dismissible bar.
+  function syncLevelControl(
     maxDepth: number,
     initialExpansionDepth: number | null
   ): void {
-    levelsContainer.innerHTML = "";
-    const levelCount = Math.min(maxDepth, 8);
-    for (let i = 1; i <= levelCount; i++) {
-      const btn = document.createElement("button");
-      btn.dataset.level = String(i);
-      btn.textContent = String(i);
-      btn.title = `Show ${i} level${i === 1 ? "" : "s"} (press ${i})`;
-      btn.addEventListener("click", () => {
-        void treeView.collapseToLevel(i);
-        setActiveLevel(btn);
-        if (activeQueryResult === null) {
-          originalLevelSelection = i;
-          persistOriginPrefs();
-        }
-      });
-      levelsContainer.appendChild(btn);
-    }
-
-    const allBtn = document.createElement("button");
-    allBtn.textContent = "All";
-    allBtn.dataset.action = "expand-all";
-    allBtn.title = "Expand all (press 0)";
-    allBtn.addEventListener("click", () => {
-      void treeView.expandAll();
-      setActiveLevel(allBtn);
-      if (activeQueryResult === null) {
-        originalLevelSelection = "all";
-        persistOriginPrefs();
-      }
-    });
-    levelsContainer.appendChild(allBtn);
-    if (initialExpansionDepth !== null) {
-      const initialLevelButton = levelsContainer.querySelector<HTMLElement>(
-        `button[data-level="${initialExpansionDepth}"]`
+    maxTreeDepth = Math.max(1, maxDepth);
+    if (initialExpansionDepth !== null && initialExpansionDepth < maxTreeDepth) {
+      applyLevel(initialExpansionDepth, false);
+      setRenderStatus(
+        `Large JSON: showing ${initialExpansionDepth} levels first. Search covers the full document.`
       );
-      if (initialLevelButton) {
-        setActiveLevel(initialLevelButton);
-        renderStatus.textContent = `Large JSON: showing ${initialExpansionDepth} levels first. Search covers the full document.`;
-      } else {
-        setActiveLevel(allBtn);
-      }
     } else {
-      setActiveLevel(allBtn);
+      applyLevel("all", false);
     }
-  }
-
-  function setActiveLevel(active: HTMLElement) {
-    levelsContainer.querySelectorAll("button").forEach((b) =>
-      b.classList.remove("jv-active")
-    );
-    active.classList.add("jv-active");
-  }
-
-  // Applies a level selection through its button so depth, active state and
-  // persistence all go through the one code path. No-op when the document is
-  // shallower than the saved level.
-  function clickLevelSelection(selection: number | "all"): void {
-    const btn =
-      selection === "all"
-        ? levelsContainer.querySelector<HTMLButtonElement>('button[data-action="expand-all"]')
-        : levelsContainer.querySelector<HTMLButtonElement>(
-            `button[data-level="${selection}"]`
-          );
-    btn?.click();
   }
 
   // Restore this origin's saved view before the tree mounts so the default
@@ -452,7 +460,7 @@ async function init(): Promise<void> {
 
   // Reapply this origin's saved depth (skipping the write — the payload
   // matches what was just loaded).
-  if (originPrefs.level !== undefined) clickLevelSelection(originPrefs.level);
+  if (originPrefs.level !== undefined) applyLevel(originPrefs.level, false);
 
   tree.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
@@ -460,9 +468,6 @@ async function init(): Promise<void> {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) {
         void treeView.toggleNode(Number(line.dataset.nodeId));
-        levelsContainer.querySelectorAll("button").forEach((b) =>
-          b.classList.remove("jv-active")
-        );
       }
     }
 
@@ -1009,7 +1014,7 @@ async function init(): Promise<void> {
     persistOriginPrefs();
 
     // Put the depth back where the user had it before the query.
-    if (originalLevelSelection !== null) clickLevelSelection(originalLevelSelection);
+    if (originalLevelSelection !== null) applyLevel(originalLevelSelection, false);
   }
 
   async function runQueryExpression(): Promise<void> {
@@ -1028,7 +1033,7 @@ async function init(): Promise<void> {
 
     showQueryError("");
     activeQueryResult = { expression, result: outcome.result };
-    queryChipText.textContent = `query: ${expression}`;
+    queryChipText.textContent = expression;
     queryChip.hidden = false;
     // Query results reuse holders from `data` where JMESPath passed them
     // through, so preserved numbers survive in unprojected subtrees.
@@ -1269,17 +1274,11 @@ async function init(): Promise<void> {
     const active = document.activeElement as HTMLElement | null;
     if (active?.matches('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
 
-    // Number keys collapse the tree to that depth (1-8); 0 expands all.
-    // Reuses the level buttons' own click handlers so behavior stays in sync.
+    // Number keys collapse the tree to that depth; 0 expands all. Routes
+    // through the same applyLevel path as the stepper (clamped to the tree).
     if (/^[0-9]$/.test(e.key)) {
-      const levelButton =
-        e.key === "0"
-          ? levelsContainer.querySelector<HTMLButtonElement>('button[data-action="expand-all"]')
-          : levelsContainer.querySelector<HTMLButtonElement>(`button[data-level="${e.key}"]`);
-      if (levelButton) {
-        e.preventDefault();
-        levelButton.click();
-      }
+      e.preventDefault();
+      applyLevel(e.key === "0" ? "all" : Number(e.key));
       return;
     }
 

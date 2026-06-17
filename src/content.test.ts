@@ -184,9 +184,8 @@ test("restores this origin's saved view and level on load", async () => {
   expect(document.getElementById("jv-raw")!.classList.contains("jv-active")).toBe(true);
   expect(document.getElementById("jv-tree")!.classList.contains("jv-hidden")).toBe(true);
 
-  // ...and the saved depth is the active level button.
-  const levelBtn = document.querySelector<HTMLElement>('#jv-levels button[data-level="1"]')!;
-  expect(levelBtn.classList.contains("jv-active")).toBe(true);
+  // ...and the saved depth is reflected in the stepper value.
+  expect(document.getElementById("jv-level-value")!.textContent).toBe("1");
 });
 
 test("theme picker is a single grouped select with no mode toggle", async () => {
@@ -572,7 +571,7 @@ test("a remembered query is restored and re-run on load", async () => {
   expect((document.getElementById("jv-remember-query") as HTMLInputElement).checked).toBe(true);
   // The saved query ran automatically: chip shows it, input holds it.
   expect(document.getElementById("jv-query-chip")!.hidden).toBe(false);
-  expect(document.getElementById("jv-query-chip-text")!.textContent).toBe("query: users");
+  expect(document.getElementById("jv-query-chip-text")!.textContent).toBe("users");
   expect((document.getElementById("jv-query-input") as HTMLInputElement).value).toBe("users");
 });
 
@@ -647,7 +646,7 @@ test("recent queries appear in the dropdown on empty focus and re-run on pick", 
   await new Promise((resolve) => setTimeout(resolve, 60));
   expect(queryInput.value).toBe("users[*].name");
   expect(document.getElementById("jv-query-chip-text")!.textContent).toBe(
-    "query: users[*].name"
+    "users[*].name"
   );
 });
 
@@ -726,6 +725,59 @@ test("autocomplete is contextual: a dot lists element keys, arrays get a badge",
   );
   expect(queryInput.value).toBe("users[*]");
   expect(queryInput.selectionStart).toBe("users[*]".length);
+});
+
+test("depth stepper steps 1 → 2 → All, and number keys drive it", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: { b: { c: 1 } } })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const value = document.getElementById("jv-level-value")!;
+  const dec = document.getElementById("jv-level-dec") as HTMLButtonElement;
+  const inc = document.getElementById("jv-level-inc") as HTMLButtonElement;
+
+  // A small doc starts fully expanded; can't expand past All.
+  expect(value.textContent).toBe("All");
+  expect(inc.disabled).toBe(true);
+
+  // Number key collapses to that depth; dec floors at 1.
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
+  expect(value.textContent).toBe("1");
+  expect(dec.disabled).toBe(true);
+
+  // + steps to 2, then folds into All at the deepest level (maxDepth 3).
+  inc.click();
+  expect(value.textContent).toBe("2");
+  inc.click();
+  expect(value.textContent).toBe("All");
+});
+
+test("the large-doc note lives in a dismissible bar, not the toolbar", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  // Exceed the large-tree threshold so the partial-expansion note fires.
+  const big = {
+    items: Array.from({ length: 3000 }, (_, i) => ({ id: i, nested: { x: i } })),
+  };
+  document.body.innerHTML = `<pre>${JSON.stringify(big)}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  const notice = document.getElementById("jv-notice")!;
+  const status = document.getElementById("jv-render-status")!;
+  const toolbar = document.getElementById("jv-toolbar")!;
+  expect(notice.hidden).toBe(false);
+  expect(status.textContent).toContain("Large JSON");
+  // The status moved out of the toolbar control row.
+  expect(toolbar.contains(notice)).toBe(false);
+
+  // ✕ dismisses the bar.
+  document.getElementById("jv-notice-close")!.click();
+  expect(notice.hidden).toBe(true);
 });
 
 test("only one popup is open at a time across search, query, and settings", async () => {
