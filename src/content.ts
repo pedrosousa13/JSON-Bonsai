@@ -17,6 +17,13 @@ import {
 } from "./themes";
 import { runQuery } from "./query";
 import {
+  JMESPATH_FUNCTIONS,
+  collectKeyUniverse,
+  currentToken,
+  suggest,
+  toJmespath,
+} from "./query-suggest";
+import {
   createOriginPrefsWriter,
   loadOriginPrefs,
   type OriginPrefs,
@@ -154,7 +161,7 @@ async function init(): Promise<void> {
   root.innerHTML = `
     <div id="jv-toolbar">
       <span id="jv-info"></span>
-      <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-copy" title="Copy path">Copy</button></span>
+      <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-query" title="Query from here">Query</button><button id="jv-path-copy" title="Copy path">Copy</button></span>
       <div id="jv-levels"></div>
       <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
       <button id="jv-query-toggle" title="Query (JMESPath) (Q)">ƒ</button>
@@ -194,6 +201,7 @@ async function init(): Promise<void> {
       <button id="jv-query-run" title="Run query (Enter)">Run</button>
       <button id="jv-query-close" title="Close (Esc)">×</button>
       <span id="jv-query-error" hidden></span>
+      <ul id="jv-query-suggest" hidden></ul>
     </div>
     <div id="jv-content">
       <div id="jv-tree"></div>
@@ -245,6 +253,7 @@ async function init(): Promise<void> {
   const pathDisplay = document.getElementById("jv-path-display")!;
   const pathText = document.getElementById("jv-path-text")!;
   const pathCopyBtn = document.getElementById("jv-path-copy")!;
+  const pathQueryBtn = document.getElementById("jv-path-query")!;
   const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
   const searchStatus = document.getElementById("jv-search-status")!;
   const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
@@ -657,6 +666,7 @@ async function init(): Promise<void> {
   const queryChip = document.getElementById("jv-query-chip")!;
   const queryChipText = document.getElementById("jv-query-chip-text")!;
   const queryChipClear = document.getElementById("jv-query-chip-clear")!;
+  const querySuggestList = document.getElementById("jv-query-suggest")!;
 
   function openSearchPanel(): void {
     // The two panels occupy the same spot under the toolbar — one at a time.
@@ -772,9 +782,85 @@ async function init(): Promise<void> {
     queryError.hidden = message === "";
   }
 
+  // Autocomplete state. The key universe is built lazily on the first panel
+  // open and cached for the document's lifetime; it reflects the ORIGINAL
+  // document, never a query-result swap. Suggestions are a capped prefix scan
+  // over those keys plus a static function list — no jmespath parsing.
+  let keyUniverse: string[] | null = null;
+  let suggestItems: string[] = [];
+  let suggestActive = -1;
+  let suggestTokenStart = 0;
+
+  function suggestOpen(): boolean {
+    return !querySuggestList.hidden;
+  }
+
+  function hideSuggest(): void {
+    querySuggestList.hidden = true;
+    querySuggestList.replaceChildren();
+    suggestItems = [];
+    suggestActive = -1;
+  }
+
+  function renderSuggest(): void {
+    querySuggestList.replaceChildren();
+    suggestItems.forEach((text, i) => {
+      const item = document.createElement("li");
+      item.className = "jv-query-suggest-item";
+      if (i === suggestActive) item.classList.add("jv-active");
+      item.textContent = text;
+      item.addEventListener("mousedown", (e) => {
+        // mousedown (not click) so the input never loses focus first.
+        e.preventDefault();
+        acceptSuggest(i);
+      });
+      querySuggestList.appendChild(item);
+    });
+    querySuggestList.hidden = suggestItems.length === 0;
+  }
+
+  function updateSuggest(): void {
+    if (keyUniverse === null) return;
+    const caret = queryInput.selectionStart ?? queryInput.value.length;
+    const { token, start } = currentToken(queryInput.value, caret);
+    const results = suggest(token, keyUniverse, JMESPATH_FUNCTIONS);
+    if (results.length === 0) {
+      hideSuggest();
+      return;
+    }
+    suggestTokenStart = start;
+    suggestItems = results;
+    suggestActive = 0;
+    renderSuggest();
+  }
+
+  function moveSuggest(delta: number): void {
+    if (suggestItems.length === 0) return;
+    suggestActive =
+      (suggestActive + delta + suggestItems.length) % suggestItems.length;
+    renderSuggest();
+  }
+
+  function acceptSuggest(index: number): void {
+    const chosen = suggestItems[index];
+    if (chosen === undefined) return;
+    const caret = queryInput.selectionStart ?? queryInput.value.length;
+    const before = queryInput.value.slice(0, suggestTokenStart);
+    const after = queryInput.value.slice(caret);
+    // Functions get an open paren for ergonomics; keys go in as-is.
+    const insertion = JMESPATH_FUNCTIONS.includes(chosen) ? `${chosen}(` : chosen;
+    queryInput.value = before + insertion + after;
+    const newCaret = before.length + insertion.length;
+    queryInput.setSelectionRange(newCaret, newCaret);
+    hideSuggest();
+    queryInput.focus();
+  }
+
   function openQueryPanel(): void {
     // The two panels occupy the same spot under the toolbar — one at a time.
     closeSearchPanel();
+    // Build the key universe once, from the ORIGINAL document, on first open.
+    if (keyUniverse === null) keyUniverse = collectKeyUniverse(model);
     queryPanel.hidden = false;
     queryInput.focus();
     queryInput.select();
@@ -784,6 +870,7 @@ async function init(): Promise<void> {
   // chip's ✕ (or an empty query) is what restores the original document.
   function closeQueryPanel(): void {
     queryPanel.hidden = true;
+    hideSuggest();
     showQueryError("");
   }
 
@@ -845,7 +932,53 @@ async function init(): Promise<void> {
     void restoreOriginalTree();
   });
 
+  // "Query from here": translate the shown node path to JMESPath, seed the
+  // input, open the panel and reuse the existing run path to render the result.
+  pathQueryBtn.addEventListener("click", () => {
+    const path = pathText.textContent;
+    if (!path) return;
+    queryInput.value = toJmespath(path);
+    openQueryPanel();
+    const end = queryInput.value.length;
+    queryInput.setSelectionRange(end, end);
+    void runQueryExpression();
+  });
+
+  queryInput.addEventListener("input", () => {
+    updateSuggest();
+  });
+
+  queryInput.addEventListener("blur", () => {
+    hideSuggest();
+  });
+
   queryInput.addEventListener("keydown", (e) => {
+    // While the dropdown is open it owns the arrows, Enter/Tab (accept) and
+    // Escape (close just the dropdown). Closed, the original bindings stand.
+    if (suggestOpen()) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveSuggest(1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveSuggest(-1);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        acceptSuggest(suggestActive);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        hideSuggest();
+        return;
+      }
+    }
+
     if (e.key === "Enter") {
       e.preventDefault();
       void runQueryExpression();

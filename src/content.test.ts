@@ -2,6 +2,18 @@
 import { expect, test, vi } from "vitest";
 import { DEFAULT_THEME_ID } from "./themes";
 
+// Spy on collectKeyUniverse through the module so the lazy-build guard can
+// observe when (and how often) content.ts builds the key universe. The rest
+// of the module keeps its real implementation.
+vi.mock("./query-suggest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./query-suggest")>();
+  return {
+    ...actual,
+    collectKeyUniverse: vi.fn(actual.collectKeyUniverse),
+  };
+});
+import { collectKeyUniverse } from "./query-suggest";
+
 test("each view keeps its own scroll position across switches", async () => {
   (globalThis as any).chrome = {
     storage: {
@@ -357,4 +369,122 @@ test("eligible Table button carries no data-tip", async () => {
 
   const tip = tableBtn.closest<HTMLElement>(".jv-tip")!;
   expect(tip.dataset.tip).toBeUndefined();
+});
+
+function stubChrome(): void {
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (q: any) => (Array.isArray(q) ? {} : q)),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+}
+
+test("query autocomplete is lazy, shows matches, accepts, and Escape closes", async () => {
+  vi.resetModules();
+  stubChrome();
+  const collectSpy = collectKeyUniverse as unknown as ReturnType<typeof vi.fn>;
+  collectSpy.mockClear();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada", role: "admin" }],
+    settings: { theme: "dark" },
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // Lazy: the key universe is not built until the query panel opens.
+  expect(collectSpy).not.toHaveBeenCalled();
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const dropdown = document.getElementById("jv-query-suggest")!;
+
+  // Opening the query panel builds the universe exactly once.
+  document.getElementById("jv-query-toggle")!.click();
+  expect(collectSpy).toHaveBeenCalledTimes(1);
+
+  // Typing a prefix shows matching suggestions.
+  queryInput.value = "se";
+  queryInput.selectionStart = 2;
+  queryInput.dispatchEvent(new Event("input"));
+  const items = dropdown.querySelectorAll(".jv-query-suggest-item");
+  expect(items.length).toBeGreaterThan(0);
+  expect(Array.from(items).map((el) => el.textContent)).toContain("settings");
+
+  // Clicking a suggestion replaces the token. The handler is on mousedown so
+  // the input keeps focus; dispatch mousedown to match.
+  (
+    Array.from(items).find((el) => el.textContent === "settings") as HTMLElement
+  ).dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  expect(queryInput.value).toBe("settings");
+  expect(dropdown.hidden).toBe(true);
+
+  // Reopening reuses the cached universe (no rebuild).
+  document.getElementById("jv-query-toggle")!.click(); // close
+  document.getElementById("jv-query-toggle")!.click(); // open
+  expect(collectSpy).toHaveBeenCalledTimes(1);
+
+  // Typing then Escape closes the dropdown without closing the panel.
+  queryInput.value = "us";
+  queryInput.selectionStart = 2;
+  queryInput.dispatchEvent(new Event("input"));
+  expect(dropdown.hidden).toBe(false);
+  queryInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
+  expect(dropdown.hidden).toBe(true);
+  expect(document.getElementById("jv-query-panel")!.hidden).toBe(false);
+});
+
+test("query-from-here seeds the input with JMESPath and runs the query", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [
+      { name: "Ada", role: "admin" },
+      { name: "Grace", role: "user" },
+    ],
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  // Hover a node so the path chip shows; then click it to pin the path.
+  const tree = document.getElementById("jv-tree")!;
+  const lines = tree.querySelectorAll<HTMLElement>(".jv-line");
+  // Find a line whose path points into the users array (e.g. data.users[0]).
+  const target = Array.from(lines).find((l) =>
+    (l.dataset.path ?? "").startsWith("data.users")
+  )!;
+  expect(target).toBeDefined();
+  target.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+
+  const pathDisplay = document.getElementById("jv-path-display")!;
+  const queryFromHere = document.getElementById("jv-path-query") as HTMLButtonElement;
+  expect(queryFromHere).not.toBeNull();
+  queryFromHere.click();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const queryChip = document.getElementById("jv-query-chip")!;
+
+  // The panel opened, the input is seeded with the JMESPath form, and the
+  // query ran (chip is showing the active query).
+  expect(queryPanel.hidden).toBe(false);
+  expect(queryInput.value.startsWith("users")).toBe(true);
+  expect(queryChip.hidden).toBe(false);
+  expect(document.getElementById("jv-query-chip-text")!.textContent).toContain(
+    queryInput.value
+  );
+  // Path display reference kept alive (chip lives in the toolbar, path bottom-left).
+  expect(pathDisplay).not.toBeNull();
 });

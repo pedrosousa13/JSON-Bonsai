@@ -214,6 +214,47 @@ html:has(#jv-root) {
   display: none;
 }
 
+#jv-query-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 8px;
+  width: min(380px, 55vw);
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  z-index: 110;
+}
+
+#jv-query-suggest[hidden] {
+  display: none;
+}
+
+.jv-query-suggest-item {
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jv-query-suggest-item:hover {
+  background: var(--btn-hover);
+}
+
+.jv-query-suggest-item.jv-active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 #jv-query-chip {
   display: inline-flex;
   align-items: center;
@@ -638,7 +679,8 @@ html:has(#jv-root) {
   text-overflow: ellipsis;
 }
 
-#jv-path-copy {
+#jv-path-copy,
+#jv-path-query {
   font-family: inherit;
   font-size: 11px;
   padding: 1px 6px;
@@ -651,7 +693,8 @@ html:has(#jv-root) {
   flex-shrink: 0;
 }
 
-#jv-path-copy:hover {
+#jv-path-copy:hover,
+#jv-path-query:hover {
   background: var(--btn-hover);
   color: var(--text);
 }
