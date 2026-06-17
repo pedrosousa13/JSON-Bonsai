@@ -254,6 +254,7 @@ export interface TreeViewController {
   expandAll: () => Promise<void>;
   toggleNode: (nodeId: number) => Promise<void>;
   toggleAllChildren: (nodeId: number) => Promise<void>;
+  goToNode: (nodeId: number) => void;
   search: (query: string) => Promise<TreeSearchState>;
   stepSearch: (delta: number) => Promise<TreeSearchState>;
   clearSearch: () => Promise<TreeSearchState>;
@@ -671,6 +672,10 @@ export function createTreeView(
 
   const controller: TreeViewController = {
     render,
+
+    goToNode(nodeId: number): void {
+      revealNode(nodeId);
+    },
 
     async collapseToLevel(targetLevel: number): Promise<void> {
       for (let i = 0; i < totalNodes; i += 1) {

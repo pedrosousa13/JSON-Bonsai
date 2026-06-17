@@ -859,3 +859,67 @@ test("only one popup is open at a time across search, query, and settings", asyn
   expect(queryPanel.hidden).toBe(false);
   expect(searchPanel.hidden).toBe(true);
 });
+
+test("G opens the go-to-path panel and jumps to a deep node", async () => {
+  vi.resetModules();
+  stubChrome();
+  document.body.innerHTML = `<pre>${JSON.stringify({
+    users: [{ name: "Ada" }, { name: "Grace" }],
+  })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const panel = document.getElementById("jv-goto-panel")!;
+  const input = document.getElementById("jv-goto-input") as HTMLInputElement;
+  const error = document.getElementById("jv-goto-error")!;
+  expect(panel.hidden).toBe(true);
+
+  // Bare "g" (no modifier, no input focused) opens and focuses the panel.
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }));
+  expect(panel.hidden).toBe(false);
+  expect(document.activeElement).toBe(input);
+
+  input.value = "users[1].name";
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(error.hidden).toBe(true);
+  const target = document.querySelector<HTMLElement>(
+    '#jv-tree .jv-line[data-path="data.users[1].name"]'
+  );
+  expect(target).not.toBeNull();
+});
+
+test("go-to-path shows an inline error for a missing path", async () => {
+  vi.resetModules();
+  stubChrome();
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-goto-toggle")!.click();
+  const input = document.getElementById("jv-goto-input") as HTMLInputElement;
+  const error = document.getElementById("jv-goto-error")!;
+
+  input.value = "nope.not.here";
+  document.getElementById("jv-goto-go")!.click();
+
+  expect(error.hidden).toBe(false);
+  expect(error.textContent).toBe("No node at that path");
+});
+
+test("the G shortcut does not fire while typing in an input", async () => {
+  vi.resetModules();
+  stubChrome();
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // Open search and focus its input, then press g — the goto panel must stay
+  // closed because the keystroke belongs to the focused field.
+  document.getElementById("jv-search-toggle")!.click();
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  searchInput.focus();
+  searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }));
+
+  expect(document.getElementById("jv-goto-panel")!.hidden).toBe(true);
+});

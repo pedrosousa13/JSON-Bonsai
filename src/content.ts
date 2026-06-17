@@ -16,6 +16,7 @@ import {
   type Base16Scheme,
 } from "./themes";
 import { runQuery } from "./query";
+import { resolvePathToNodeId } from "./jump-to-path";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
@@ -168,6 +169,7 @@ async function init(): Promise<void> {
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-query" title="Query from here">Query</button><button id="jv-path-copy" title="Copy path">Copy</button></span>
       <select id="jv-level-select" title="Expansion depth (keys 1–9, 0 for all)" aria-label="Expansion depth"></select>
       <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
+      <button id="jv-goto-toggle" title="Go to path (G)">⤓</button>
       <button id="jv-query-toggle" title="Query (JMESPath) (Q)">ƒ</button>
       <span id="jv-query-chip" hidden><span id="jv-query-chip-text" title="Edit query"></span><button id="jv-query-chip-clear" title="Clear query">✕</button></span>
       <div id="jv-view-picker">
@@ -209,6 +211,12 @@ async function init(): Promise<void> {
         <button id="jv-query-close" title="Close (Esc)">×</button>
         <span id="jv-query-error" hidden></span>
         <ul id="jv-query-suggest" hidden></ul>
+      </div>
+      <div id="jv-goto-panel" hidden>
+        <input id="jv-goto-input" type="text" placeholder="e.g. users[3].name" spellcheck="false" autocomplete="off">
+        <button id="jv-goto-go" title="Go to path (Enter)">Go</button>
+        <button id="jv-goto-close" title="Close (Esc)">×</button>
+        <span id="jv-goto-error" hidden></span>
       </div>
     </div>
     <div id="jv-notice" hidden>
@@ -359,6 +367,9 @@ async function init(): Promise<void> {
   setRenderStatus("Indexing JSON...");
   const model = buildTreeModel(data, exactNumbers);
   let treeView!: TreeViewController;
+  // The model currently mounted in the tree view (original document or a query
+  // result), used to resolve jump-to-path lookups against what's on screen.
+  let activeTreeModel: TreeModel = model;
   let treeMounted = false;
   // The original document's index lives for the whole page so swapping to a
   // query result and back never pays the worker re-indexing cost again.
@@ -400,6 +411,7 @@ async function init(): Promise<void> {
   async function mountTree(treeModel: TreeModel, searchIndex: TreeSearchIndex): Promise<void> {
     if (treeMounted) treeView.dispose();
     treeMounted = true;
+    activeTreeModel = treeModel;
     const initialExpansionDepth =
       treeModel.totalNodes > LARGE_TREE_NODE_THRESHOLD
         ? LARGE_TREE_INITIAL_EXPANSION_DEPTH
@@ -725,8 +737,9 @@ async function init(): Promise<void> {
   const querySuggestList = document.getElementById("jv-query-suggest")!;
 
   function openSearchPanel(): void {
-    // Only one popup at a time: close the query panel and settings menu.
+    // The panels share one spot under the toolbar — only one open at a time.
     queryPanel.hidden = true;
+    document.getElementById("jv-goto-panel")!.hidden = true;
     closeSettingsMenu();
     searchPanel.hidden = false;
     searchInput.focus();
@@ -1012,8 +1025,9 @@ async function init(): Promise<void> {
   }
 
   function openQueryPanel(): void {
-    // Only one popup at a time: close the search panel and settings menu.
+    // The panels share one spot under the toolbar — only one open at a time.
     closeSearchPanel();
+    document.getElementById("jv-goto-panel")!.hidden = true;
     closeSettingsMenu();
     // Build the key universe once, from the ORIGINAL document, on first open.
     if (keyUniverse === null) keyUniverse = collectKeyUniverse(model);
@@ -1168,6 +1182,88 @@ async function init(): Promise<void> {
     }
   });
 
+  // Go-to-path panel
+  const gotoPanel = document.getElementById("jv-goto-panel")!;
+  const gotoToggleBtn = document.getElementById("jv-goto-toggle")!;
+  const gotoInput = document.getElementById("jv-goto-input") as HTMLInputElement;
+  const gotoGoBtn = document.getElementById("jv-goto-go")!;
+  const gotoCloseBtn = document.getElementById("jv-goto-close")!;
+  const gotoError = document.getElementById("jv-goto-error")!;
+
+  function showGotoError(message: string): void {
+    gotoError.textContent = message;
+    gotoError.hidden = message === "";
+  }
+
+  function openGotoPanel(): void {
+    // The panels share one spot under the toolbar — only one open at a time.
+    closeSearchPanel();
+    closeQueryPanel();
+    closeSettingsMenu();
+    gotoPanel.hidden = false;
+    gotoInput.focus();
+    gotoInput.select();
+  }
+
+  function closeGotoPanel(): void {
+    gotoPanel.hidden = true;
+    showGotoError("");
+  }
+
+  function jumpToPath(): void {
+    // Jump always targets the tree; switch to it if another view is showing.
+    if (currentView !== "tree") setView("tree");
+
+    const nodeId = resolvePathToNodeId(gotoInput.value, activeTreeModel.pathToId);
+    if (nodeId === null) {
+      showGotoError("No node at that path");
+      return;
+    }
+
+    showGotoError("");
+    treeView.goToNode(nodeId);
+    flashNode(nodeId);
+  }
+
+  function flashNode(nodeId: number): void {
+    // The row may not be rendered until after goToNode's render settles, so
+    // wait a frame, then clear the class once the animation has run.
+    window.requestAnimationFrame(() => {
+      const row = treeView.getRowElement(nodeId);
+      if (!row) return;
+      row.classList.remove("jv-goto-flash");
+      // Force reflow so re-adding the class restarts the animation.
+      void row.offsetWidth;
+      row.classList.add("jv-goto-flash");
+      window.setTimeout(() => row.classList.remove("jv-goto-flash"), 1200);
+    });
+  }
+
+  gotoToggleBtn.addEventListener("click", () => {
+    if (gotoPanel.hidden) openGotoPanel();
+    else closeGotoPanel();
+  });
+
+  gotoGoBtn.addEventListener("click", jumpToPath);
+
+  gotoCloseBtn.addEventListener("click", () => {
+    closeGotoPanel();
+  });
+
+  gotoInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      jumpToPath();
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeGotoPanel();
+    }
+  });
+
   const settingsToggle = document.getElementById("jv-settings-toggle")!;
   const settingsMenu = document.getElementById("jv-settings-menu")!;
   function closeSettingsMenu(): void {
@@ -1296,6 +1392,7 @@ async function init(): Promise<void> {
   const shortcuts: Record<string, () => void> = {
     c: copyJson,
     q: openQueryPanel,
+    g: openGotoPanel,
   };
 
   document.addEventListener("keydown", (e) => {

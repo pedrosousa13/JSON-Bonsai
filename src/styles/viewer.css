@@ -194,7 +194,12 @@ html:has(#jv-root) {
   font-size: 13px;
 }
 
-#jv-query-panel {
+#jv-goto-toggle {
+  font-size: 14px;
+}
+
+#jv-query-panel,
+#jv-goto-panel {
   position: absolute;
   top: calc(100% + 8px);
   right: 16px;
@@ -211,11 +216,13 @@ html:has(#jv-root) {
   user-select: none;
 }
 
-#jv-query-panel[hidden] {
+#jv-query-panel[hidden],
+#jv-goto-panel[hidden] {
   display: none;
 }
 
-#jv-query-input {
+#jv-query-input,
+#jv-goto-input {
   width: min(380px, 55vw);
   min-width: 200px;
   font-family: inherit;
@@ -227,11 +234,13 @@ html:has(#jv-root) {
   color: var(--text);
 }
 
-#jv-query-input::placeholder {
+#jv-query-input::placeholder,
+#jv-goto-input::placeholder {
   color: var(--text-muted);
 }
 
-#jv-query-panel button {
+#jv-query-panel button,
+#jv-goto-panel button {
   font-family: inherit;
   font-size: 12px;
   padding: 3px 8px;
@@ -242,17 +251,20 @@ html:has(#jv-root) {
   cursor: pointer;
 }
 
-#jv-query-panel button:hover {
+#jv-query-panel button:hover,
+#jv-goto-panel button:hover {
   background: var(--btn-hover);
 }
 
-#jv-query-error {
+#jv-query-error,
+#jv-goto-error {
   flex-basis: 100%;
   font-size: 11px;
   color: #e5484d;
 }
 
-#jv-query-error[hidden] {
+#jv-query-error[hidden],
+#jv-goto-error[hidden] {
   display: none;
 }
 
@@ -606,6 +618,21 @@ html:has(#jv-root) {
 .jv-line.jv-search-active {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Brief pulse after jump-to-path lands on a row. */
+.jv-line.jv-goto-flash {
+  animation: jv-goto-flash 1.2s ease-out;
+}
+
+@keyframes jv-goto-flash {
+  0%,
+  20% {
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
 }
 
 .jv-key {
