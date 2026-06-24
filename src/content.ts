@@ -39,6 +39,7 @@ import {
   stringifyWithExactNumbers,
   type ExactNumberMap,
 } from "./lossless-numbers";
+import { parseNdjson, parseNdjsonLines } from "./ndjson";
 import "./styles/viewer.css";
 
 const LARGE_TREE_NODE_THRESHOLD = 8000;
@@ -48,24 +49,43 @@ function detectJSON(): {
   data: JsonValue;
   raw: string;
   exactNumbers: ExactNumberMap | null;
+  isNdjson: boolean;
 } | null {
   const pre = document.querySelector("body > pre");
   const isPlainBody =
     document.body.children.length === 1 && pre instanceof HTMLPreElement;
-  const hasJSONContentType = (document.contentType || "").includes("json");
+  const contentType = document.contentType || "";
+  const hasJSONContentType = contentType.includes("json");
+  const isNdjsonContentType =
+    contentType.includes("ndjson") || contentType.includes("jsonl");
 
   if (!isPlainBody && !hasJSONContentType) return null;
 
   const raw = (pre ? pre.textContent : document.body.textContent || "")!.trim();
   if (!raw) return null;
 
+  // An explicit NDJSON Content-Type forces the line-per-value path so a
+  // single-object body still renders as a one-element array.
+  if (isNdjsonContentType) {
+    const ndjson = parseNdjsonLines(raw);
+    if (ndjson) {
+      return { data: ndjson.data, raw, exactNumbers: ndjson.exactNumbers, isNdjson: true };
+    }
+  }
+
   try {
     const { data, exactNumbers } = parseWithExactNumbers(raw);
     if (data === null || typeof data !== "object") return null;
-    return { data, raw, exactNumbers };
+    return { data, raw, exactNumbers, isNdjson: false };
   } catch {
-    return null;
+    // Not a single JSON value — fall through to conservative NDJSON detection.
   }
+
+  const ndjson = parseNdjson(raw);
+  if (ndjson) {
+    return { data: ndjson.data, raw, exactNumbers: ndjson.exactNumbers, isNdjson: true };
+  }
+  return null;
 }
 
 async function storageSet(key: string, value: string): Promise<void> {
@@ -143,7 +163,7 @@ async function init(): Promise<void> {
   const result = detectJSON();
   if (!result) return;
 
-  const { data, raw, exactNumbers } = result;
+  const { data, raw, exactNumbers, isNdjson } = result;
   let prettyRaw: string | null = null;
 
   function getPrettyRaw(): string {
@@ -164,6 +184,7 @@ async function init(): Promise<void> {
 
   root.innerHTML = `
     <div id="jv-toolbar">
+      <span id="jv-mode-badge" hidden></span>
       <span id="jv-info"></span>
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-query" title="Query from here">Query</button><button id="jv-path-copy" title="Copy path">Copy</button></span>
       <select id="jv-level-select" title="Expansion depth (keys 1–9, 0 for all)" aria-label="Expansion depth"></select>
@@ -282,6 +303,12 @@ async function init(): Promise<void> {
   const searchPanel = document.getElementById("jv-search-panel")!;
   const info = document.getElementById("jv-info")!;
   const levelSelect = document.getElementById("jv-level-select") as HTMLSelectElement;
+  const modeBadge = document.getElementById("jv-mode-badge")!;
+  if (isNdjson) {
+    modeBadge.textContent = "NDJSON";
+    modeBadge.title = "Newline-delimited JSON rendered as an array";
+    modeBadge.hidden = false;
+  }
   const renderStatus = document.getElementById("jv-render-status")!;
   const notice = document.getElementById("jv-notice")!;
   const noticeClose = document.getElementById("jv-notice-close")!;
