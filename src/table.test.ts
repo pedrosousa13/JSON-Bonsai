@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   TABLE_COLUMN_CAP,
@@ -304,6 +304,108 @@ describe("table filter", () => {
     expect(view.setFilter("67890123").shown).toBe(1);
     // ...not the lossy double's stringification ("1.2345678901234568e+29").
     expect(view.setFilter("e+29").shown).toBe(0);
+  });
+});
+
+describe("table export", () => {
+  function exportButton(container: HTMLElement, label: string): HTMLButtonElement {
+    const button = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".jv-table-export-btn")
+    ).find((b) => b.textContent === label);
+    if (!button) throw new Error(`missing export button: ${label}`);
+    return button;
+  }
+
+  function stubClipboard(): { last: () => string | undefined } {
+    let text: string | undefined;
+    const writeText = vi.fn((value: string) => {
+      text = value;
+      return Promise.resolve();
+    });
+    Object.assign(navigator, { clipboard: { writeText } });
+    return { last: () => text };
+  }
+
+  test("renders copy/download buttons for CSV and TSV", () => {
+    const container = createContainer();
+    createTableView(container, [{ a: 1 }]);
+    const labels = Array.from(
+      container.querySelectorAll(".jv-table-export-btn")
+    ).map((b) => b.textContent);
+    expect(labels).toEqual(["Copy CSV", "Download CSV", "Copy TSV", "Download TSV"]);
+  });
+
+  test("Copy CSV writes RFC 4180 CSV reflecting the current columns", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, [
+      { name: "Smith, John", note: 'said "hi"' },
+      { name: "plain", note: null },
+    ]);
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe(
+      'name,note\r\n"Smith, John","said ""hi"""\r\nplain,null'
+    );
+  });
+
+  test("Copy TSV uses tabs as the delimiter", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, [{ a: "1", b: "2" }]);
+    exportButton(container, "Copy TSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe("a\tb\r\n1\t2");
+  });
+
+  test("export reflects the active sort and row filter", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    const view = createTableView(container, [
+      { name: "alpha", n: 3 },
+      { name: "beta", n: 1 },
+      { name: "alphabet", n: 2 },
+    ]);
+
+    // Sort ascending by n.
+    container.querySelector<HTMLElement>('.jv-table-th[data-column="n"]')!.click();
+    // Filter to the "alp" rows.
+    view.setFilter("alp");
+
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    // Only alphabet(2) and alpha(3) survive the filter, in ascending-n order.
+    expect(clipboard.last()).toBe("name,n\r\nalphabet,2\r\nalpha,3");
+  });
+
+  test("serializes nested object and array cells as JSON", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, [{ obj: { a: 1 }, arr: [1, 2] }]);
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe('obj,arr\r\n"{""a"":1}","[1,2]"');
+  });
+
+  test("Download CSV builds a blob anchor with a sensible filename", () => {
+    stubClipboard();
+    const createObjectURL = vi.fn(() => "blob:stub");
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const clicks: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      clicks.push(this.download);
+    };
+
+    const container = createContainer();
+    createTableView(container, [{ a: 1 }]);
+    exportButton(container, "Download CSV").click();
+
+    HTMLAnchorElement.prototype.click = realClick;
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(clicks).toEqual(["json-bonsai-export.csv"]);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:stub");
   });
 });
 
