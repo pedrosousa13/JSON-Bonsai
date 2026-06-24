@@ -72,14 +72,56 @@ html:has(#jv-root) {
   margin-right: auto;
 }
 
+/* Depth selector: a compact dropdown of levels (1..maxDepth, All). */
+#jv-level-select {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Status / large-doc notice: a dismissible strip below the toolbar. */
+#jv-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+#jv-notice[hidden] {
+  display: none;
+}
+
 #jv-render-status {
+  flex: 1 1 auto;
   color: var(--text-muted);
   font-size: 12px;
 }
 
-#jv-levels {
-  display: flex;
-  gap: 2px;
+#jv-notice-close {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#jv-notice-close:hover {
+  background: var(--btn-hover);
+  color: var(--text);
 }
 
 #jv-search-panel {
@@ -214,6 +256,119 @@ html:has(#jv-root) {
   display: none;
 }
 
+#jv-query-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 8px;
+  width: min(380px, 55vw);
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  z-index: 110;
+}
+
+#jv-query-suggest[hidden] {
+  display: none;
+}
+
+.jv-query-suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.jv-query-suggest-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jv-query-suggest-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.jv-query-suggest-item:hover {
+  background: var(--btn-hover);
+}
+
+.jv-query-suggest-item.jv-active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.jv-query-suggest-item.jv-active .jv-query-suggest-badge {
+  color: var(--bg);
+}
+
+/* History section: a small label, then recent-query rows with a replay glyph
+   and a hover-revealed remove button. */
+.jv-query-suggest-section {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.jv-query-suggest-recent .jv-query-suggest-name {
+  flex: 1 1 auto;
+}
+
+.jv-query-suggest-glyph {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.jv-query-suggest-item.jv-active .jv-query-suggest-glyph {
+  color: var(--bg);
+}
+
+.jv-query-suggest-del {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.jv-query-suggest-item:hover .jv-query-suggest-del,
+.jv-query-suggest-item.jv-active .jv-query-suggest-del {
+  opacity: 1;
+}
+
+.jv-query-suggest-del:hover {
+  background: var(--btn-hover);
+  color: var(--error);
+}
+
+.jv-query-suggest-item.jv-active .jv-query-suggest-del {
+  color: var(--bg);
+}
+
 #jv-query-chip {
   display: inline-flex;
   align-items: center;
@@ -234,6 +389,13 @@ html:has(#jv-root) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Readable contrast on the toolbar (the muted chip border stays subtle). */
+  color: var(--text);
+  cursor: pointer;
+}
+
+#jv-query-chip-text:hover {
+  text-decoration: underline;
 }
 
 #jv-toolbar #jv-query-chip-clear {
@@ -256,6 +418,12 @@ html:has(#jv-root) {
   transition: background 0.1s;
 }
 
+/* Center the label and the shortcut badge instead of baseline-aligning them. */
+#jv-copy {
+  display: inline-flex;
+  align-items: center;
+}
+
 #jv-toolbar button:hover {
   background: var(--btn-hover);
 }
@@ -274,8 +442,8 @@ html:has(#jv-root) {
   flex: 1 1 0;
   min-height: 0;
   padding: 16px;
-  /* Clear the fixed path/copy bar so the last lines stay readable at full scroll. */
-  padding-bottom: 56px;
+  /* Clear the fixed path/copy bar (≈44px tall) at full scroll, with room to spare. */
+  padding-bottom: 80px;
   overflow: auto;
   position: relative;
 }
@@ -602,6 +770,11 @@ html:has(#jv-root) {
   color: var(--text-muted);
 }
 
+.jv-table-cell.jv-table-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 #jv-path-display {
   position: fixed;
   left: 16px;
@@ -638,7 +811,8 @@ html:has(#jv-root) {
   text-overflow: ellipsis;
 }
 
-#jv-path-copy {
+#jv-path-copy,
+#jv-path-query {
   font-family: inherit;
   font-size: 11px;
   padding: 1px 6px;
@@ -651,7 +825,8 @@ html:has(#jv-root) {
   flex-shrink: 0;
 }
 
-#jv-path-copy:hover {
+#jv-path-copy:hover,
+#jv-path-query:hover {
   background: var(--btn-hover);
   color: var(--text);
 }
@@ -744,7 +919,8 @@ html:has(#jv-root) {
   margin-left: 6px;
   padding: 0 4px;
   font-size: 10px;
-  color: var(--text-muted);
+  /* Readable on the toolbar — muted-on-hover was too low-contrast. */
+  color: var(--text);
   background: var(--btn-hover);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -788,6 +964,18 @@ html:has(#jv-root) {
   font-size: 12px;
   color: var(--text);
   margin-bottom: 8px;
+}
+
+.jv-settings-check {
+  margin-bottom: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.jv-settings-check input {
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 #jv-settings-menu select {

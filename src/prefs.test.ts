@@ -46,6 +46,67 @@ test("prefs round-trip: written prefs load back for the same origin", async () =
   });
 });
 
+test("query round-trips and a non-string query is ignored", async () => {
+  const store = installMockStorage();
+  const write = createOriginPrefsWriter("https://api.example.com");
+
+  write({ view: "tree", query: "users[*].name" });
+  await vi.runAllTimersAsync();
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    query: "users[*].name",
+  });
+
+  // A corrupted (non-string) query is dropped, not surfaced.
+  store["jv-prefs:https://api.example.com"] = { view: "tree", query: 42 };
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+  });
+});
+
+test("recentQueries round-trip; non-string entries are filtered out", async () => {
+  const store = installMockStorage();
+  const write = createOriginPrefsWriter("https://api.example.com");
+
+  write({ view: "tree", recentQueries: ["a", "b[*].c"] });
+  await vi.runAllTimersAsync();
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    recentQueries: ["a", "b[*].c"],
+  });
+
+  // Mixed/garbage arrays keep only the strings; an all-garbage array is dropped.
+  store["jv-prefs:https://api.example.com"] = {
+    view: "tree",
+    recentQueries: ["ok", 5, null, "fine"],
+  };
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    recentQueries: ["ok", "fine"],
+  });
+});
+
+test("recentSearches round-trip; non-string entries are filtered out", async () => {
+  const store = installMockStorage();
+  const write = createOriginPrefsWriter("https://api.example.com");
+
+  write({ view: "tree", recentSearches: ["ada", "grace"] });
+  await vi.runAllTimersAsync();
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    recentSearches: ["ada", "grace"],
+  });
+
+  store["jv-prefs:https://api.example.com"] = {
+    view: "tree",
+    recentSearches: ["ok", 0, false, "fine"],
+  };
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "tree",
+    recentSearches: ["ok", "fine"],
+  });
+});
+
 test("prefs are keyed per origin", async () => {
   const store = installMockStorage();
   const writeA = createOriginPrefsWriter("https://a.example.com");

@@ -140,12 +140,16 @@ function cellText(value: JsonValue | undefined): string {
   if (value === undefined) return "–";
   if (value === null) return "null";
   if (typeof value === "object") return containerPreview(value);
+  // An empty string is a real value, distinct from missing ("–"): mark it so
+  // the cell isn't a confusing blank.
+  if (value === "") return '""';
   return truncateCell(String(value));
 }
 
 function cellClass(value: JsonValue | undefined): string {
   if (value === undefined) return "jv-table-cell jv-table-missing";
   if (value === null) return "jv-table-cell jv-null";
+  if (value === "") return "jv-table-cell jv-table-empty";
   if (typeof value === "string") return "jv-table-cell jv-string";
   if (typeof value === "number") return "jv-table-cell jv-number";
   if (typeof value === "boolean") return "jv-table-cell jv-bool";
