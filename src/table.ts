@@ -1,5 +1,16 @@
 import type { JsonValue } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
+import { serializeDelimited, type DelimitedFormat } from "./csv";
+
+const EXPORT_FILENAMES: Record<DelimitedFormat, string> = {
+  csv: "json-bonsai-export.csv",
+  tsv: "json-bonsai-export.tsv",
+};
+
+const EXPORT_MIME: Record<DelimitedFormat, string> = {
+  csv: "text/csv;charset=utf-8",
+  tsv: "text/tab-separated-values;charset=utf-8",
+};
 
 export const TABLE_OBJECT_RATIO = 0.8;
 export const TABLE_COLUMN_CAP = 30;
@@ -146,6 +157,17 @@ function cellText(value: JsonValue | undefined): string {
   return truncateCell(String(value));
 }
 
+// Untruncated cell value for export. Scalars become their plain string form;
+// objects and arrays are JSON-serialized; absent cells become empty strings.
+// Exact source text (lossless numbers) overrides the scalar form when present.
+function exportCellValue(value: JsonValue | undefined, exact: string | undefined): string {
+  if (exact !== undefined) return exact;
+  if (value === undefined) return "";
+  if (value === null) return "null";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 function cellClass(value: JsonValue | undefined): string {
   if (value === undefined) return "jv-table-cell jv-table-missing";
   if (value === null) return "jv-table-cell jv-null";
@@ -225,6 +247,15 @@ export function createTableView(
     container.appendChild(note);
   }
 
+  const exportBar = document.createElement("div");
+  exportBar.className = "jv-table-export";
+  const copyCsvBtn = createExportButton("Copy CSV", "copy", "csv");
+  const downloadCsvBtn = createExportButton("Download CSV", "download", "csv");
+  const copyTsvBtn = createExportButton("Copy TSV", "copy", "tsv");
+  const downloadTsvBtn = createExportButton("Download TSV", "download", "tsv");
+  exportBar.append(copyCsvBtn, downloadCsvBtn, copyTsvBtn, downloadTsvBtn);
+  container.appendChild(exportBar);
+
   const header = document.createElement("div");
   header.className = "jv-table-header";
   const indexHead = document.createElement("div");
@@ -292,6 +323,74 @@ export function createTableView(
     if (value === null) return "null";
     if (typeof value === "object") return containerPreview(value).toLowerCase();
     return String(value).toLowerCase();
+  }
+
+  // Builds the export rows from the on-screen state: current columns, and the
+  // current filtered + sorted order (`order` is what the table renders).
+  // Non-object elements contribute their value in the first column only.
+  function collectExportTable(): { columns: string[]; rows: string[][] } {
+    const rows = order.map((rowIndex) => {
+      const row = data[rowIndex];
+      if (!isPlainObject(row)) {
+        const cells = new Array<string>(columns.length).fill("");
+        if (columns.length > 0) {
+          cells[0] = exportCellValue(
+            row,
+            exactNumberText(data, String(rowIndex), row)
+          );
+        }
+        return cells;
+      }
+      return columns.map((column) =>
+        exportCellValue(row[column], exactNumberText(row, column, row[column]))
+      );
+    });
+    return { columns, rows };
+  }
+
+  function exportText(format: DelimitedFormat): string {
+    return serializeDelimited(collectExportTable(), format);
+  }
+
+  function flashButton(button: HTMLButtonElement, message: string): void {
+    const original = button.textContent;
+    button.textContent = message;
+    setTimeout(() => {
+      button.textContent = original;
+    }, 1000);
+  }
+
+  function downloadExport(format: DelimitedFormat): void {
+    const blob = new Blob([exportText(format)], { type: EXPORT_MIME[format] });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = EXPORT_FILENAMES[format];
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function createExportButton(
+    label: string,
+    action: "copy" | "download",
+    format: DelimitedFormat
+  ): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "jv-table-export-btn";
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      if (action === "copy") {
+        void navigator.clipboard
+          .writeText(exportText(format))
+          .then(() => flashButton(button, "Copied!"));
+      } else {
+        downloadExport(format);
+      }
+    });
+    return button;
   }
 
   function buildSearchTexts(): Array<string[] | string> {
