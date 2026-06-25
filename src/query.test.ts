@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { runQuery } from "./query";
+import { createScopeResolver, runQuery } from "./query";
 
 describe("runQuery", () => {
   test("evaluates a simple path expression", () => {
@@ -53,5 +53,31 @@ describe("runQuery", () => {
     if (!outcome.ok) {
       expect(outcome.error).toContain("abs()");
     }
+  });
+});
+
+describe("createScopeResolver", () => {
+  const data = { users: [{ name: "Ada" }], count: 2 };
+
+  test("resolves a valid expression to its value", () => {
+    const resolve = createScopeResolver(data);
+    expect(resolve("users[0]")).toEqual({ name: "Ada" });
+  });
+
+  test("returns null for a syntax error", () => {
+    const resolve = createScopeResolver(data);
+    expect(resolve("[invalid")).toBeNull();
+  });
+
+  test("returns null for a runtime type error", () => {
+    const resolve = createScopeResolver(data);
+    expect(resolve("abs(users)")).toBeNull();
+  });
+
+  test("distinct expressions resolve independently (cache keyed by expr)", () => {
+    const resolve = createScopeResolver(data);
+    expect(resolve("count")).toBe(2);
+    expect(resolve("users[0]")).toEqual({ name: "Ada" });
+    expect(resolve("count")).toBe(2);
   });
 });
