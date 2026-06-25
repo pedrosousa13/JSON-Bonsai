@@ -859,3 +859,131 @@ test("only one popup is open at a time across search, query, and settings", asyn
   expect(queryPanel.hidden).toBe(false);
   expect(searchPanel.hidden).toBe(true);
 });
+
+test("does not expose window.data by default (no holder injected)", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") return {};
+          if (Array.isArray(query)) return {};
+          return { ...query };
+        }),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-json-data")).toBeNull();
+  expect(document.getElementById("jv-page-script")).toBeNull();
+  expect((document.getElementById("jv-expose-data") as HTMLInputElement).checked).toBe(false);
+});
+
+test("injects the payload holder and page-script when opted in", async () => {
+  vi.resetModules();
+  const store: Record<string, unknown> = { "jv-expose-window-data": "1" };
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") return query in store ? { [query]: store[query] } : {};
+          if (Array.isArray(query)) {
+            const out: Record<string, unknown> = {};
+            for (const key of query) if (key in store) out[key] = store[key];
+            return out;
+          }
+          return Object.fromEntries(
+            Object.entries(query).map(([k, def]) => [k, k in store ? store[k] : def])
+          );
+        }),
+        set: vi.fn(async (items: Record<string, unknown>) => {
+          Object.assign(store, items);
+        }),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const holder = document.getElementById("jv-json-data");
+  const script = document.getElementById("jv-page-script") as HTMLScriptElement | null;
+  expect(holder).not.toBeNull();
+  expect(holder!.textContent).toBe(JSON.stringify({ a: 1 }));
+  expect(script).not.toBeNull();
+  expect(script!.src).toBe("chrome-extension://test/page-script.js");
+  expect((document.getElementById("jv-expose-data") as HTMLInputElement).checked).toBe(true);
+});
+
+test("toggling the expose-data checkbox persists the key and injects live", async () => {
+  vi.resetModules();
+  const store: Record<string, unknown> = {};
+  const set = vi.fn(async (items: Record<string, unknown>) => {
+    Object.assign(store, items);
+  });
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") return query in store ? { [query]: store[query] } : {};
+          if (Array.isArray(query)) {
+            const out: Record<string, unknown> = {};
+            for (const key of query) if (key in store) out[key] = store[key];
+            return out;
+          }
+          return Object.fromEntries(
+            Object.entries(query).map(([k, def]) => [k, k in store ? store[k] : def])
+          );
+        }),
+        set,
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const check = document.getElementById("jv-expose-data") as HTMLInputElement;
+  expect(check.checked).toBe(false);
+  expect(document.getElementById("jv-json-data")).toBeNull();
+
+  check.checked = true;
+  check.dispatchEvent(new Event("change"));
+  expect(set).toHaveBeenCalledWith({ "jv-expose-window-data": "1" });
+  expect(document.getElementById("jv-json-data")).not.toBeNull();
+  expect(document.getElementById("jv-page-script")).not.toBeNull();
+
+  check.checked = false;
+  check.dispatchEvent(new Event("change"));
+  expect(set).toHaveBeenCalledWith({ "jv-expose-window-data": "0" });
+  expect(document.getElementById("jv-json-data")).toBeNull();
+  expect(document.getElementById("jv-page-script")).toBeNull();
+});
