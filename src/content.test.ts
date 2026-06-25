@@ -374,6 +374,66 @@ test("eligible Table button carries no data-tip", async () => {
   expect(tip.dataset.tip).toBeUndefined();
 });
 
+test("static text views disable depth, search, and query controls", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (q: any) => (Array.isArray(q) ? {} : q)),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  // Array of objects so the Table view is eligible too.
+  document.body.innerHTML = `<pre>[{"id":1,"name":"a"}]</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const level = document.getElementById("jv-level-select") as HTMLSelectElement;
+  const search = document.getElementById("jv-search-toggle") as HTMLButtonElement;
+  const query = document.getElementById("jv-query-toggle") as HTMLButtonElement;
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const btn = (view: string) =>
+    document.querySelector<HTMLElement>(`.jv-view-btn[data-view="${view}"]`)!;
+
+  // Tree: everything enabled.
+  expect(level.disabled).toBe(false);
+  expect(search.disabled).toBe(false);
+  expect(query.disabled).toBe(false);
+
+  // Formatted/raw/schema: depth, search, and query all disabled.
+  for (const view of ["formatted", "raw", "schema"]) {
+    btn(view).click();
+    expect(level.disabled, view).toBe(true);
+    expect(search.disabled, view).toBe(true);
+    expect(query.disabled, view).toBe(true);
+  }
+
+  // The keyboard shortcut can't bypass the guard either.
+  btn("raw").click();
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
+  expect(queryPanel.hidden).toBe(true);
+
+  // Table: search + query back on; depth stays off (a table has no depth).
+  btn("table").click();
+  expect(level.disabled).toBe(true);
+  expect(search.disabled).toBe(false);
+  expect(query.disabled).toBe(false);
+
+  // Back to tree: all on again.
+  btn("tree").click();
+  expect(level.disabled).toBe(false);
+  expect(search.disabled).toBe(false);
+  expect(query.disabled).toBe(false);
+});
+
 // A chrome.storage.local stand-in that actually persists, so query-remember
 // round-trips (load → restore, toggle → save) can be observed in one process.
 function statefulChrome(initial: Record<string, unknown> = {}): Map<string, unknown> {

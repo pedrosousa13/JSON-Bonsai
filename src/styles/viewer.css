@@ -465,7 +465,8 @@ html:has(#jv-root) {
   border-color: var(--accent);
 }
 
-#jv-toolbar button:disabled {
+#jv-toolbar button:disabled,
+#jv-level-select:disabled {
   opacity: 0.55;
 }
 
