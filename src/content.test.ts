@@ -14,6 +14,10 @@ vi.mock("./query-suggest", async (importOriginal) => {
 });
 import { collectKeyUniverse } from "./query-suggest";
 
+// jsdom doesn't implement scrollIntoView; the suggest list calls it to keep the
+// keyboard-highlighted item in view. Stub it once for every test in this file.
+Element.prototype.scrollIntoView = vi.fn();
+
 test("each view keeps its own scroll position across switches", async () => {
   (globalThis as any).chrome = {
     storage: {
