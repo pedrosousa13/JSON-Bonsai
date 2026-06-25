@@ -999,6 +999,11 @@ async function init(): Promise<void> {
       querySuggestList.appendChild(item);
     });
     querySuggestList.hidden = suggestItems.length === 0;
+    // replaceChildren() above resets scrollTop, so keyboard nav past the visible
+    // window would leave the highlight off-screen; pull it back into view.
+    querySuggestList
+      .querySelector(".jv-active")
+      ?.scrollIntoView({ block: "nearest" });
   }
 
   function updateSuggest(): void {
