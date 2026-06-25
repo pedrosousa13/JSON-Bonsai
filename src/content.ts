@@ -20,9 +20,9 @@ import { createScopeResolver, runQuery } from "./query";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
+  composeNodeQuery,
   projectLastIndex,
   suggestAtScoped,
-  toJmespath,
   type KeySuggestion,
   type ValueKind,
 } from "./query-suggest";
@@ -528,7 +528,11 @@ async function init(): Promise<void> {
 
     if (target.classList.contains("jv-action-query-node")) {
       const line = target.closest<HTMLElement>(".jv-line");
-      if (line?.dataset.path) seedAndRunQuery(toJmespath(line.dataset.path));
+      if (line?.dataset.path) {
+        seedAndRunQuery(
+          composeNodeQuery(activeQueryResult?.expression ?? null, line.dataset.path)
+        );
+      }
       return;
     }
 
@@ -537,7 +541,11 @@ async function init(): Promise<void> {
       const projected = line?.dataset.path
         ? projectLastIndex(line.dataset.path)
         : null;
-      if (projected) seedAndRunQuery(toJmespath(projected));
+      if (projected) {
+        seedAndRunQuery(
+          composeNodeQuery(activeQueryResult?.expression ?? null, projected)
+        );
+      }
       return;
     }
 
@@ -1222,7 +1230,7 @@ async function init(): Promise<void> {
   pathQueryBtn.addEventListener("click", () => {
     const path = pathText.textContent;
     if (!path) return;
-    seedAndRunQuery(toJmespath(path));
+    seedAndRunQuery(composeNodeQuery(activeQueryResult?.expression ?? null, path));
   });
 
   queryInput.addEventListener("input", () => {

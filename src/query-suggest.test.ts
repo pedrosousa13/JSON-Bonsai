@@ -4,6 +4,7 @@ import { buildTreeModel, type JsonValue } from "./tree-model";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
+  composeNodeQuery,
   currentToken,
   projectLastIndex,
   splitPipes,
@@ -265,6 +266,29 @@ describe("projectLastIndex", () => {
 
   test("ignores quoted keys that contain digits", () => {
     expect(projectLastIndex('data["a1"][4].x')).toBe('data["a1"][*].x');
+  });
+});
+
+describe("composeNodeQuery", () => {
+  test("with no active query, returns the path as a root query", () => {
+    expect(composeNodeQuery(null, "data.story.content")).toBe("story.content");
+  });
+
+  test("with an active query, chains the node path onto it via a pipe", () => {
+    // The node lives in the result tree, so its path is relative to the result.
+    expect(composeNodeQuery("story.content", "data.featured_story")).toBe(
+      "story.content | featured_story"
+    );
+  });
+
+  test("the result root node chains as @ (the whole result)", () => {
+    expect(composeNodeQuery("story.content", "data")).toBe("story.content | @");
+  });
+
+  test("composes a projected (query-all) path", () => {
+    expect(composeNodeQuery("items[*]", "data[*].name")).toBe(
+      "items[*] | [*].name"
+    );
   });
 });
 

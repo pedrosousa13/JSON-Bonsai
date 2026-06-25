@@ -146,6 +146,21 @@ export function projectLastIndex(path: string): string | null {
   return `${path.slice(0, last.index)}[*]${path.slice(last.index + last[0].length)}`;
 }
 
+// Build the JMESPath query for "query from here" on a node. `nodePath` is the
+// node's path string (rooted at "data"). Queries always evaluate against the
+// original document, but when a query is already active the node lives in the
+// RESULT tree, so its path is relative to the result — chain it onto the active
+// expression with a pipe. With no active query the path queries the root.
+export function composeNodeQuery(
+  activeExpression: string | null,
+  nodePath: string
+): string {
+  const relative = toJmespath(nodePath);
+  return activeExpression === null
+    ? relative
+    : `${activeExpression} | ${relative}`;
+}
+
 // Top-level pipe segments of a JMESPath expression. Used to scope autocomplete
 // to the segment under the caret. A hand scanner (no AST — jmespath@0.16 has no
 // parser): `|` is a boundary only at bracket/paren depth 0, outside any quote,
