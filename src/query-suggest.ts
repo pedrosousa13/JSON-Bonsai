@@ -2,7 +2,7 @@
 // affordance. No DOM, no jmespath parsing — suggestions come from the loaded
 // document's keys plus a static function list, since jmespath@0.16.0 exposes
 // no public parser/AST.
-import type { TreeModel } from "./tree-model";
+import type { JsonValue, TreeModel } from "./tree-model";
 
 // JMESPath builtin functions worth suggesting. From the JMESPath spec's
 // built-in function list (https://jmespath.org/specification.html#functions).
@@ -131,6 +131,46 @@ export function toJmespath(nodePath: string): string {
     first = false;
   }
   return out;
+}
+
+// Top-level pipe segments of a JMESPath expression. Used to scope autocomplete
+// to the segment under the caret. A hand scanner (no AST — jmespath@0.16 has no
+// parser): `|` is a boundary only at bracket/paren depth 0, outside any quote,
+// and not when it is part of `||` (the or-operator). `start` is the index of the
+// segment's first char (just after the preceding `|`); `end` is the terminating
+// `|` index (or text.length for the last). No top-level pipe ⇒ one whole segment.
+export function splitPipes(text: string): { start: number; end: number }[] {
+  const segments: { start: number; end: number }[] = [];
+  let segStart = 0;
+  let depth = 0; // [] and () nesting
+  let quote: string | null = null; // active quote char: " ' `
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (quote !== null) {
+      if (c === "\\") {
+        i += 1; // skip the escaped char
+      } else if (c === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+    } else if (c === "[" || c === "(") {
+      depth += 1;
+    } else if (c === "]" || c === ")") {
+      if (depth > 0) depth -= 1;
+    } else if (c === "|" && depth === 0) {
+      if (text[i + 1] === "|") {
+        i += 1; // `||` — consume both, not a boundary
+        continue;
+      }
+      segments.push({ start: segStart, end: i });
+      segStart = i + 1;
+    }
+  }
+  segments.push({ start: segStart, end: text.length });
+  return segments;
 }
 
 // ── Contextual autocomplete ────────────────────────────────────────────────
@@ -366,4 +406,43 @@ export function suggestAt(
     kind: kindByName.get(name) ?? ("scalar" as ValueKind),
   }));
   return { items, start };
+}
+
+// Pipe-aware wrapper over suggestAt. When the caret sits after a top-level pipe,
+// suggestions resolve against the value the left side produces (supplied by the
+// injected `resolveScope`, so this module stays jmespath-free) instead of the
+// document root. Unresolvable left side ⇒ no suggestions. The returned `start`
+// is offset back into the full text so the caller splices in the right place.
+export function suggestAtScoped(
+  text: string,
+  caret: number,
+  data: JsonValue,
+  universe: string[],
+  functions: string[],
+  resolveScope: (leftExpr: string) => JsonValue | null,
+  limit = 50
+): { items: KeySuggestion[]; start: number } {
+  const segments = splitPipes(text);
+  // The segment under the caret: the last one starting at or before it.
+  let active = segments[0];
+  for (const seg of segments) if (seg.start <= caret) active = seg;
+
+  // First segment (or no pipe): unchanged — resolve against the root.
+  if (active.start === 0) {
+    return suggestAt(text, caret, data, universe, functions, limit);
+  }
+
+  const leftExpr = text.slice(0, active.start - 1).trim();
+  const scope = resolveScope(leftExpr);
+  if (scope === null) return { items: [], start: caret };
+
+  const inner = suggestAt(
+    text.slice(active.start),
+    caret - active.start,
+    scope,
+    universe,
+    functions,
+    limit
+  );
+  return { items: inner.items, start: inner.start + active.start };
 }

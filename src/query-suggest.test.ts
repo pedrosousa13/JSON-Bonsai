@@ -1,11 +1,14 @@
 import { describe, expect, test } from "vitest";
+import { runQuery } from "./query";
 import { buildTreeModel } from "./tree-model";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
   currentToken,
+  splitPipes,
   suggest,
   suggestAt,
+  suggestAtScoped,
   toJmespath,
 } from "./query-suggest";
 
@@ -237,5 +240,93 @@ describe("toJmespath", () => {
     expect(toJmespath('data.items[2]["weird key"].id')).toBe(
       'items[2]."weird key".id'
     );
+  });
+});
+
+describe("splitPipes", () => {
+  test("no pipe yields a single whole-string segment", () => {
+    expect(splitPipes("a.b.c")).toEqual([{ start: 0, end: 5 }]);
+  });
+
+  test("a single top-level pipe splits into two segments", () => {
+    expect(splitPipes("a | b")).toEqual([
+      { start: 0, end: 2 },
+      { start: 3, end: 5 },
+    ]);
+  });
+
+  test("multiple pipes split into multiple segments", () => {
+    expect(splitPipes("a | b | c")).toHaveLength(3);
+  });
+
+  test("|| (or-operator) is not a boundary", () => {
+    expect(splitPipes("a || b")).toEqual([{ start: 0, end: 6 }]);
+  });
+
+  test("a pipe inside a string literal is not a boundary", () => {
+    expect(splitPipes("a == 'x|y'")).toHaveLength(1);
+  });
+
+  test("a pipe inside brackets is not a boundary", () => {
+    expect(splitPipes("items[?a | b]")).toHaveLength(1);
+  });
+
+  test("a pipe inside parens is not a boundary", () => {
+    expect(splitPipes("f(a | b)")).toHaveLength(1);
+  });
+
+  test("a trailing pipe yields an empty final segment", () => {
+    expect(splitPipes("a | ")).toEqual([
+      { start: 0, end: 2 },
+      { start: 3, end: 4 },
+    ]);
+  });
+});
+
+describe("suggestAtScoped", () => {
+  const doc = {
+    users: [
+      { name: "Ada", role: "admin", tags: ["x"] },
+      { name: "Grace", role: "user" },
+    ],
+    settings: { theme: "dark" },
+    count: 2,
+  };
+  const UNIVERSE = ["U_one", "U_two"];
+  const resolve = (expr: string) => {
+    const outcome = runQuery(doc, expr);
+    return outcome.ok ? outcome.result : null;
+  };
+  const scoped = (text: string, caret = text.length) =>
+    suggestAtScoped(text, caret, doc, UNIVERSE, JMESPATH_FUNCTIONS, resolve);
+  const names = (text: string, caret = text.length) =>
+    scoped(text, caret).items.map((i) => i.name);
+
+  test("no pipe resolves against the document root", () => {
+    expect(names("us")).toEqual(["users"]);
+  });
+
+  test("right of a pipe resolves against the piped scope", () => {
+    // `users[0]` is an object; the right segment sees its keys.
+    expect(names("users[0] | na")).toEqual(["name"]);
+  });
+
+  test("a filter right of a pipe resolves against the piped array", () => {
+    expect(names("users | [?ro")).toEqual(["role"]);
+  });
+
+  test("reports an absolute token start across the pipe", () => {
+    // "users[0] | na" → the "na" token starts at index 11.
+    expect(scoped("users[0] | na").start).toBe(11);
+  });
+
+  test("an unresolvable left side yields no suggestions", () => {
+    // abs() on an object errors → resolve returns null.
+    expect(names("abs(@) | na")).toEqual([]);
+  });
+
+  test("|| does not trigger scoping (stays a root-level expression)", () => {
+    // If `||` were a pipe, the left `users` scope would offer no `us*` key.
+    expect(names("users || us")).toEqual(["users"]);
   });
 });
