@@ -257,7 +257,7 @@ async function init(): Promise<void> {
   const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
   // Whether to remember the last query per origin. Global (like theme), since
   // it's a personal preference, not a property of any one document. On by
-  // default; only an explicit "0" (the user toggled it off) disables it.
+  // default; only an explicit "0" (the user opted out) disables it.
   const rememberQueryStored = await chrome.storage.local.get({ [REMEMBER_QUERY_KEY]: "1" });
   let rememberQuery = rememberQueryStored[REMEMBER_QUERY_KEY] !== "0";
   // Expose the parsed payload as window.data for console use. Off by default —
