@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { runQuery } from "./query";
-import { buildTreeModel } from "./tree-model";
+import { buildTreeModel, type JsonValue } from "./tree-model";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
@@ -284,7 +284,7 @@ describe("splitPipes", () => {
 });
 
 describe("suggestAtScoped", () => {
-  const doc = {
+  const doc: JsonValue = {
     users: [
       { name: "Ada", role: "admin", tags: ["x"] },
       { name: "Grace", role: "user" },

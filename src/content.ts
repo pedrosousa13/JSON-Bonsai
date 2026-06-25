@@ -16,11 +16,11 @@ import {
   schemeToCssVars,
   type Base16Scheme,
 } from "./themes";
-import { runQuery } from "./query";
+import { createScopeResolver, runQuery } from "./query";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
-  suggestAt,
+  suggestAtScoped,
   toJmespath,
   type KeySuggestion,
   type ValueKind,
@@ -232,7 +232,7 @@ async function init(): Promise<void> {
         <button id="jv-search-clear" title="Close (Esc)">×</button>
       </div>
       <div id="jv-query-panel" hidden>
-        <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`].name" spellcheck="false" autocomplete="off">
+        <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`] | sort_by(@, &name)" spellcheck="false" autocomplete="off">
         <button id="jv-query-run" title="Run query (Enter)">Run</button>
         <button id="jv-query-close" title="Close (Esc)">×</button>
         <span id="jv-query-error" hidden></span>
@@ -917,6 +917,9 @@ async function init(): Promise<void> {
   // document, never a query-result swap. Suggestions are a capped prefix scan
   // over those keys plus a static function list — no jmespath parsing.
   let keyUniverse: string[] | null = null;
+  // Memoized evaluator for the left side of a pipe — powers pipe-aware
+  // autocomplete (`<path> | <relative query>`). Built once; `data` is stable.
+  const scopeResolver = createScopeResolver(data);
   // The dropdown shows either contextual key suggestions (while typing) or the
   // recent-query history (when the field is empty) — one mode at a time.
   type SuggestEntry =
@@ -1024,7 +1027,14 @@ async function init(): Promise<void> {
     const caret = queryInput.selectionStart ?? value.length;
     // Resolve suggestions against the ORIGINAL document, contextual to the path
     // typed so far; keyUniverse is the flat fallback for unresolvable paths.
-    const { items, start } = suggestAt(value, caret, data, keyUniverse, JMESPATH_FUNCTIONS);
+    const { items, start } = suggestAtScoped(
+      value,
+      caret,
+      data,
+      keyUniverse,
+      JMESPATH_FUNCTIONS,
+      scopeResolver
+    );
     if (items.length === 0) {
       hideSuggest();
       return;

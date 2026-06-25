@@ -416,7 +416,7 @@ export function suggestAt(
 export function suggestAtScoped(
   text: string,
   caret: number,
-  data: JsonValue,
+  data: unknown,
   universe: string[],
   functions: string[],
   resolveScope: (leftExpr: string) => JsonValue | null,
