@@ -110,6 +110,11 @@ test("query-from-here seeds the input and runs the query", async () => {
 });
 
 test("recent queries surface in the dropdown and re-run on pick", async () => {
+  await page.click("#jv-settings-toggle");
+  const remember = page.locator("#jv-remember-query");
+  await expect(remember).toBeChecked();
+  await page.click("#jv-settings-toggle");
+
   // Earlier tests may leave the panel open; only toggle it when hidden.
   if (await page.locator("#jv-query-panel").isHidden()) {
     await page.click("#jv-query-toggle");

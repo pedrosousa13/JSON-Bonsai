@@ -575,7 +575,7 @@ test("a remembered query is restored and re-run on load", async () => {
   expect((document.getElementById("jv-query-input") as HTMLInputElement).value).toBe("users");
 });
 
-test("remember-query is on by default; toggling off drops the saved query", async () => {
+test("remember-query is on by default; toggling off disables future query persistence", async () => {
   vi.resetModules();
   const store = statefulChrome();
 
@@ -587,10 +587,10 @@ test("remember-query is on by default; toggling off drops the saved query", asyn
 
   const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
   const check = document.getElementById("jv-remember-query") as HTMLInputElement;
-  // Default on with nothing stored.
+  // Default on with nothing stored, preserving query persistence for fresh users.
   expect(check.checked).toBe(true);
 
-  // Running a query persists it automatically (writer debounce ~250ms).
+  // Running a query persists it unless the user opts out.
   document.getElementById("jv-query-toggle")!.click();
   queryInput.value = "users";
   queryInput.dispatchEvent(
@@ -600,11 +600,15 @@ test("remember-query is on by default; toggling off drops the saved query", asyn
   const prefsKey = `jv-prefs:${location.origin}`;
   expect((store.get(prefsKey) as { query?: string }).query).toBe("users");
 
-  // Toggling off persists the flag and drops the stored query.
+  // Toggling off persists the opt-out and prevents later queries from being remembered.
   check.click();
+  queryInput.value = "users[*].name";
+  queryInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(store.get("jv-remember-query")).toBe("0");
-  expect((store.get(prefsKey) as { query?: string }).query).toBeUndefined();
+  expect((store.get(prefsKey) as { query?: string } | undefined)?.query).toBeUndefined();
 });
 
 test("recent queries appear in the dropdown on empty focus and re-run on pick", async () => {
@@ -782,9 +786,9 @@ test("the large-doc note lives in a dismissible bar, not the toolbar", async () 
   expect(notice.hidden).toBe(true);
 });
 
-test("committing a search saves it to the search-history datalist", async () => {
+test("committing a search saves history by default and respects the opt-out", async () => {
   vi.resetModules();
-  const store = statefulChrome(); // remember on by default
+  const store = statefulChrome();
 
   document.body.innerHTML = `<pre>${JSON.stringify({ alpha: 1, beta: 2 })}</pre>`;
   await import("./content");
@@ -792,9 +796,11 @@ test("committing a search saves it to the search-history datalist", async () => 
 
   const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
   const datalist = document.getElementById("jv-search-history")!;
+  const check = document.getElementById("jv-remember-query") as HTMLInputElement;
   document.getElementById("jv-search-toggle")!.click();
+  expect(check.checked).toBe(true);
 
-  // Enter commits the search → it lands in the datalist and in storage.
+  // Enter commits the search and default-on history stores it.
   searchInput.value = "alpha";
   searchInput.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
@@ -806,6 +812,22 @@ test("committing a search saves it to the search-history datalist", async () => 
   expect(
     (store.get(`jv-prefs:${location.origin}`) as { recentSearches?: string[] }).recentSearches
   ).toContain("alpha");
+
+  // Once the user opts out, committed searches stop landing in storage.
+  check.click();
+  searchInput.value = "beta";
+  searchInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const optedOutOpts = Array.from(datalist.querySelectorAll("option")).map((o) => o.value);
+  expect(optedOutOpts).not.toContain("beta");
+  expect(store.get("jv-remember-query")).toBe("0");
+  expect(
+    (store.get(`jv-prefs:${location.origin}`) as { recentSearches?: string[] } | undefined)
+      ?.recentSearches
+  ).toBeUndefined();
 });
 
 test("a remembered search history populates the datalist on load", async () => {
@@ -858,4 +880,132 @@ test("only one popup is open at a time across search, query, and settings", asyn
   queryToggle.click();
   expect(queryPanel.hidden).toBe(false);
   expect(searchPanel.hidden).toBe(true);
+});
+
+test("does not expose window.data by default (no holder injected)", async () => {
+  vi.resetModules();
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") return {};
+          if (Array.isArray(query)) return {};
+          return { ...query };
+        }),
+        set: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-json-data")).toBeNull();
+  expect(document.getElementById("jv-page-script")).toBeNull();
+  expect((document.getElementById("jv-expose-data") as HTMLInputElement).checked).toBe(false);
+});
+
+test("injects the payload holder and page-script when opted in", async () => {
+  vi.resetModules();
+  const store: Record<string, unknown> = { "jv-expose-window-data": "1" };
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") return query in store ? { [query]: store[query] } : {};
+          if (Array.isArray(query)) {
+            const out: Record<string, unknown> = {};
+            for (const key of query) if (key in store) out[key] = store[key];
+            return out;
+          }
+          return Object.fromEntries(
+            Object.entries(query).map(([k, def]) => [k, k in store ? store[k] : def])
+          );
+        }),
+        set: vi.fn(async (items: Record<string, unknown>) => {
+          Object.assign(store, items);
+        }),
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const holder = document.getElementById("jv-json-data");
+  const script = document.getElementById("jv-page-script") as HTMLScriptElement | null;
+  expect(holder).not.toBeNull();
+  expect(holder!.textContent).toBe(JSON.stringify({ a: 1 }));
+  expect(script).not.toBeNull();
+  expect(script!.src).toBe("chrome-extension://test/page-script.js");
+  expect((document.getElementById("jv-expose-data") as HTMLInputElement).checked).toBe(true);
+});
+
+test("toggling the expose-data checkbox persists the key and injects live", async () => {
+  vi.resetModules();
+  const store: Record<string, unknown> = {};
+  const set = vi.fn(async (items: Record<string, unknown>) => {
+    Object.assign(store, items);
+  });
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: vi.fn(async (query: string | string[] | Record<string, unknown>) => {
+          if (typeof query === "string") return query in store ? { [query]: store[query] } : {};
+          if (Array.isArray(query)) {
+            const out: Record<string, unknown> = {};
+            for (const key of query) if (key in store) out[key] = store[key];
+            return out;
+          }
+          return Object.fromEntries(
+            Object.entries(query).map(([k, def]) => [k, k in store ? store[k] : def])
+          );
+        }),
+        set,
+        remove: vi.fn(async () => {}),
+      },
+    },
+    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
+  };
+  window.matchMedia = vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const check = document.getElementById("jv-expose-data") as HTMLInputElement;
+  expect(check.checked).toBe(false);
+  expect(document.getElementById("jv-json-data")).toBeNull();
+
+  check.checked = true;
+  check.dispatchEvent(new Event("change"));
+  expect(set).toHaveBeenCalledWith({ "jv-expose-window-data": "1" });
+  expect(document.getElementById("jv-json-data")).not.toBeNull();
+  expect(document.getElementById("jv-page-script")).not.toBeNull();
+
+  check.checked = false;
+  check.dispatchEvent(new Event("change"));
+  expect(set).toHaveBeenCalledWith({ "jv-expose-window-data": "0" });
+  expect(document.getElementById("jv-json-data")).toBeNull();
+  expect(document.getElementById("jv-page-script")).toBeNull();
 });

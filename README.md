@@ -41,7 +41,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 - Hover any property to see its full JSON path — click to pin, then copy
 - Per-node actions: copy any subtree's value, expand/collapse all children
 - Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
-- JSON payload available in the console as `window.data`
+- Optional console access — opt in (Settings ⚙, off by default) to expose the payload as `window.data`
 
 ### Fidelity
 
@@ -50,7 +50,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 ### Personalization and platform
 
 - base16 theming — 13 bundled schemes plus your own custom themes, with auto/dark/light mode switching
-- Per-site memory — the view mode and tree depth you pick are remembered per origin and restored on your next visit
+- Per-site memory — the view mode, tree depth, and query/search history you use are remembered per origin and restored on your next visit; query/search history can be disabled in Settings
 - Cross-platform builds (Windows/macOS/Linux) and a single package that works in both Chrome and Firefox
 
 ## Installation
@@ -99,10 +99,10 @@ Navigate to any URL that returns JSON (e.g. `https://jsonplaceholder.typicode.co
 - **Copy JSON** (`C`) — copy what the active view shows
 - **Click any line** — pins the JSON path in the toolbar, click Copy to copy it
 - **Keyboard** — `1`–`8` set tree depth, `0` expands all, `C` copies, `Q` queries, `⌘F` searches
-- **Console** — the parsed JSON is available as `window.data`
+- **Console** — enable **Settings (⚙) → "Expose payload as `window.data`"** (off by default) to make the parsed JSON available as `window.data`
 - **Settings** (⚙) — pick your dark/light schemes and add custom themes (see [Theming](#theming))
 
-> **Privacy note:** the `window.data` convenience exposes the parsed payload to the page's main-world JavaScript (including any other extensions running there) on the page's own origin. It is not reachable by a remote attacker, but if you view authenticated API responses on a page that also runs scripts, be aware the payload is visible to them.
+> **Privacy note:** the `window.data` convenience is **off by default**. When you turn it on in Settings, the parsed payload is exposed to the page's main-world JavaScript (including any other extensions running there) on the page's own origin. Once read, JSON Bonsai removes the in-page copy from the DOM. Leave the toggle off if you view authenticated API responses on origins that also run scripts.
 
 ## Theming
 
@@ -151,7 +151,7 @@ npm run package   # build and create per-store zips (Chrome + Firefox)
 
 `test:e2e` needs a build first and a one-time `npx playwright install chromium`. CI runs typecheck, unit tests, build, and the E2E suite on every PR.
 
-Releases are automated: pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, packages, attaches the zips to a GitHub Release, and (when store credentials are configured as repository secrets) publishes to the Chrome Web Store and Firefox Add-ons.
+Releases are manual: run `npm run package` to build the Chrome and Firefox zip files, then attach them to a GitHub Release and submit them to the browser stores.
 
 After making changes, reload the extension in your browser.
 

@@ -94,6 +94,7 @@ async function storageSet(key: string, value: string): Promise<void> {
 }
 
 const REMEMBER_QUERY_KEY = "jv-remember-query";
+const EXPOSE_DATA_KEY = "jv-expose-window-data";
 const RECENT_QUERY_CAP = 10;
 
 interface ThemeState {
@@ -215,6 +216,10 @@ async function init(): Promise<void> {
             <label for="jv-remember-query">Remember queries &amp; searches</label>
             <input type="checkbox" id="jv-remember-query">
           </div>
+          <div class="jv-settings-row jv-settings-check">
+            <label for="jv-expose-data">Expose payload as window.data</label>
+            <input type="checkbox" id="jv-expose-data">
+          </div>
         </div>
       </div>
       <div id="jv-search-panel" hidden>
@@ -252,9 +257,14 @@ async function init(): Promise<void> {
   const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
   // Whether to remember the last query per origin. Global (like theme), since
   // it's a personal preference, not a property of any one document. On by
-  // default; only an explicit "0" (the user toggled it off) disables it.
+  // default; only an explicit "0" (the user opted out) disables it.
   const rememberQueryStored = await chrome.storage.local.get({ [REMEMBER_QUERY_KEY]: "1" });
   let rememberQuery = rememberQueryStored[REMEMBER_QUERY_KEY] !== "0";
+  // Expose the parsed payload as window.data for console use. Off by default —
+  // it surfaces the JSON to the page's main-world scripts, so it's strictly
+  // opt-in; only an explicit "1" (the user toggled it on) enables it.
+  const exposeDataStored = await chrome.storage.local.get({ [EXPOSE_DATA_KEY]: "0" });
+  let exposeWindowData = exposeDataStored[EXPOSE_DATA_KEY] === "1";
 
   function allSchemes(): Base16Scheme[] {
     return [...BUILTIN_SCHEMES, ...themeState.customs];
@@ -1264,6 +1274,22 @@ async function init(): Promise<void> {
     persistOriginPrefs();
   });
 
+  const exposeDataCheck = document.getElementById(
+    "jv-expose-data"
+  ) as HTMLInputElement;
+  exposeDataCheck.checked = exposeWindowData;
+  exposeDataCheck.addEventListener("change", () => {
+    exposeWindowData = exposeDataCheck.checked;
+    void storageSet(EXPOSE_DATA_KEY, exposeWindowData ? "1" : "0");
+    // Apply live: inject now when enabling; strip the in-DOM copy when disabling.
+    // An already-set window.data in the page's main world clears on reload.
+    if (exposeWindowData) {
+      injectPageData(raw);
+    } else {
+      removeInjectedPageData();
+    }
+  });
+
   const themeSelect = document.getElementById("jv-theme-select") as HTMLSelectElement;
   const pasteArea = document.getElementById("jv-theme-paste") as HTMLTextAreaElement;
   const addThemeBtn = document.getElementById("jv-theme-add")!;
@@ -1406,11 +1432,14 @@ async function init(): Promise<void> {
     await runQueryExpression();
   }
 
-  injectPageData(raw);
+  if (exposeWindowData) injectPageData(raw);
 }
 
 function injectPageData(raw: string): void {
   try {
+    // Re-injecting (live toggle) must not stack duplicate holders.
+    removeInjectedPageData();
+
     const holder = document.createElement("script");
     holder.type = "application/json";
     holder.id = "jv-json-data";
@@ -1418,11 +1447,19 @@ function injectPageData(raw: string): void {
     document.documentElement.appendChild(holder);
 
     const script = document.createElement("script");
+    script.id = "jv-page-script";
     script.src = chrome.runtime.getURL("page-script.js");
     document.documentElement.appendChild(script);
   } catch {
     // Sandboxed frames block script injection — window.data won't be available
   }
+}
+
+// Removes the in-DOM payload copy. page-script.js removes these itself after it
+// runs; this covers the disable path and guards against duplicate injection.
+function removeInjectedPageData(): void {
+  document.getElementById("jv-json-data")?.remove();
+  document.getElementById("jv-page-script")?.remove();
 }
 
 init();
