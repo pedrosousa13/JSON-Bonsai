@@ -20,6 +20,7 @@ import { createScopeResolver, runQuery } from "./query";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
+  projectLastIndex,
   suggestAtScoped,
   toJmespath,
   type KeySuggestion,
@@ -523,6 +524,21 @@ async function init(): Promise<void> {
       if (line) {
         void treeView.toggleAllChildren(Number(line.dataset.nodeId));
       }
+    }
+
+    if (target.classList.contains("jv-action-query-node")) {
+      const line = target.closest<HTMLElement>(".jv-line");
+      if (line?.dataset.path) seedAndRunQuery(toJmespath(line.dataset.path));
+      return;
+    }
+
+    if (target.classList.contains("jv-action-query-all-node")) {
+      const line = target.closest<HTMLElement>(".jv-line");
+      const projected = line?.dataset.path
+        ? projectLastIndex(line.dataset.path)
+        : null;
+      if (projected) seedAndRunQuery(toJmespath(projected));
+      return;
     }
 
     if (target.classList.contains("jv-action-copy-node")) {
@@ -1164,6 +1180,16 @@ async function init(): Promise<void> {
     persistOriginPrefs();
   }
 
+  // Seed the query input with a ready-made expression, open the panel, and run
+  // it. Shared by "Query from here" (toolbar + inline) and "Query all".
+  function seedAndRunQuery(expression: string): void {
+    queryInput.value = expression;
+    openQueryPanel();
+    const end = queryInput.value.length;
+    queryInput.setSelectionRange(end, end);
+    void runQueryExpression();
+  }
+
   queryToggleBtn.addEventListener("click", () => {
     if (queryPanel.hidden) openQueryPanel();
     else closeQueryPanel();
@@ -1196,11 +1222,7 @@ async function init(): Promise<void> {
   pathQueryBtn.addEventListener("click", () => {
     const path = pathText.textContent;
     if (!path) return;
-    queryInput.value = toJmespath(path);
-    openQueryPanel();
-    const end = queryInput.value.length;
-    queryInput.setSelectionRange(end, end);
-    void runQueryExpression();
+    seedAndRunQuery(toJmespath(path));
   });
 
   queryInput.addEventListener("input", () => {

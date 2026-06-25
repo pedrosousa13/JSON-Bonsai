@@ -133,6 +133,19 @@ export function toJmespath(nodePath: string): string {
   return out;
 }
 
+// Generalize a node path to "this field across all array items" by replacing
+// the LAST array index with a `[*]` wildcard — `data[0].company` →
+// `data[*].company`, `data[0].tags[2]` → `data[0].tags[*]`. Only pure-digit
+// brackets are indices; quoted keys (`["a1"]`) are left alone. Returns null when
+// the path has no array index (nothing to project). Pairs with toJmespath.
+export function projectLastIndex(path: string): string | null {
+  const re = /\[\d+\]/g;
+  let last: RegExpExecArray | null = null;
+  for (let m = re.exec(path); m !== null; m = re.exec(path)) last = m;
+  if (last === null) return null;
+  return `${path.slice(0, last.index)}[*]${path.slice(last.index + last[0].length)}`;
+}
+
 // Top-level pipe segments of a JMESPath expression. Used to scope autocomplete
 // to the segment under the caret. A hand scanner (no AST — jmespath@0.16 has no
 // parser): `|` is a boundary only at bracket/paren depth 0, outside any quote,

@@ -5,6 +5,7 @@ import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
   currentToken,
+  projectLastIndex,
   splitPipes,
   suggest,
   suggestAt,
@@ -240,6 +241,30 @@ describe("toJmespath", () => {
     expect(toJmespath('data.items[2]["weird key"].id')).toBe(
       'items[2]."weird key".id'
     );
+  });
+});
+
+describe("projectLastIndex", () => {
+  test("projects the only array index over all elements", () => {
+    expect(projectLastIndex("data[0].company")).toBe("data[*].company");
+  });
+
+  test("projects an index under a named key", () => {
+    expect(projectLastIndex("data.users[3].company")).toBe(
+      "data.users[*].company"
+    );
+  });
+
+  test("projects the last (innermost) index, leaving earlier ones", () => {
+    expect(projectLastIndex("data[0].tags[2]")).toBe("data[0].tags[*]");
+  });
+
+  test("returns null when the path has no array index", () => {
+    expect(projectLastIndex("data.settings.theme")).toBeNull();
+  });
+
+  test("ignores quoted keys that contain digits", () => {
+    expect(projectLastIndex('data["a1"][4].x')).toBe('data["a1"][*].x');
   });
 });
 

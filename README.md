@@ -40,7 +40,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 - Query relative to any node — "Query from here" seeds a node's path; append `| expr` to query inside that subtree, with autocomplete resolving keys against the scoped node
 - Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`); in table view, search filters the rows instead
 - Hover any property to see its full JSON path — click to pin, then copy
-- Per-node actions: copy any subtree's value, expand/collapse all children
+- Per-node actions: copy any subtree's value, expand/collapse all children, "query from here" (`ƒ query`), or "query across all array items" (`ƒ all`, on nodes inside an array)
 - Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
 - Optional console access — opt in (Settings ⚙, off by default) to expose the payload as `window.data`
 
