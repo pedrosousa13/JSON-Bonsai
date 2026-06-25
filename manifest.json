@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "JSON Bonsai",
   "version": "1.4.0",
-  "description": "Prune, shape, and navigate giant JSON trees",
+  "description": "Fast JSON viewer that stays smooth on 100k+ nodes — tree, table & schema views, JMESPath queries, search, and theming.",
   "browser_specific_settings": {
     "gecko": {
       "id": "json-bonsai@ef.design",
