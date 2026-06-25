@@ -9,7 +9,12 @@ import {
 type FakeWorker = {
   onmessage: ((event: MessageEvent) => void) | null;
   onerror: ((event: ErrorEvent) => void) | null;
-  postMessage(message: { type: string; requestId?: number; query?: string }): void;
+  postMessage(message: {
+    type: string;
+    requestId?: number;
+    query?: string;
+    regex?: boolean;
+  }): void;
   terminate(): void;
 };
 
@@ -24,7 +29,12 @@ describe("tree worker search index", () => {
     const worker: FakeWorker = {
       onmessage: null,
       onerror: null,
-      postMessage(message: { type: string; requestId?: number; query?: string }) {
+      postMessage(message: {
+        type: string;
+        requestId?: number;
+        query?: string;
+        regex?: boolean;
+      }) {
         messages.push(message);
         if (message.type === "search") {
           this.onmessage?.({
@@ -44,7 +54,45 @@ describe("tree worker search index", () => {
 
     expect(matches).toEqual([model.pathToId.get("data.alpha.target")]);
     expect(messages[0]).toMatchObject({ type: "init" });
-    expect(messages[1]).toMatchObject({ type: "search", query: "match" });
+    expect(messages[1]).toMatchObject({ type: "search", query: "match", regex: false });
+  });
+
+  test("forwards the regex flag to the worker", async () => {
+    const model = buildTreeModel({ alpha: { target: "match" } });
+
+    const messages: Array<{ type: string; regex?: boolean }> = [];
+    const worker: FakeWorker = {
+      onmessage: null,
+      onerror: null,
+      postMessage(message) {
+        messages.push(message);
+        if (message.type === "search") {
+          this.onmessage?.({
+            data: { type: "search-result", requestId: message.requestId!, matches: [] },
+          } as MessageEvent);
+        }
+      },
+      terminate() {},
+    };
+
+    const searchIndex = createTreeWorkerSearchIndex(model, () => worker);
+    await searchIndex.search("ma.ch", { regex: true });
+
+    expect(messages[1]).toMatchObject({ type: "search", query: "ma.ch", regex: true });
+  });
+
+  test("sync fallback honors the regex flag", async () => {
+    const model = buildTreeModel({ alpha: { target: "match" } });
+
+    const searchIndex = createBestAvailableTreeSearchIndex(model, () => {
+      throw new Error("worker blocked");
+    });
+
+    // Regex matches the value; substring "ma.ch" would not.
+    await expect(searchIndex.search("ma.ch", { regex: true })).resolves.toEqual([
+      model.pathToId.get("data.alpha.target"),
+    ]);
+    await expect(searchIndex.search("ma.ch")).resolves.toEqual([]);
   });
 
   test("falls back to local search when worker creation fails", async () => {

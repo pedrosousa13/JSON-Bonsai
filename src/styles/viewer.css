@@ -204,6 +204,23 @@ html:has(#jv-root) {
   font-size: 14px;
 }
 
+#jv-search-regex {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  padding-inline: 6px;
+}
+
+#jv-search-regex.jv-active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+#jv-search-status.jv-search-error {
+  color: var(--accent);
+  min-width: 72px;
+}
+
 #jv-query-toggle {
   font-size: 13px;
 }

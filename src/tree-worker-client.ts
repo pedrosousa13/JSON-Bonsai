@@ -1,5 +1,9 @@
 import type { TreeModel } from "./tree-model";
-import { createTreeSearchNodes, searchTreeSearchNodes } from "./tree-search";
+import {
+  createTreeSearchNodes,
+  searchTreeSearchNodes,
+  type TreeSearchOptions,
+} from "./tree-search";
 import type {
   TreeWorkerMessage,
   TreeWorkerResponseMessage,
@@ -7,7 +11,7 @@ import type {
 } from "./tree-worker-protocol";
 
 export interface TreeSearchIndex {
-  search(query: string): Promise<number[]>;
+  search(query: string, options?: TreeSearchOptions): Promise<number[]>;
   prewarm?(): void;
   dispose(): void;
 }
@@ -39,8 +43,8 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
   const searchNodes = createTreeSearchNodes(model);
 
   return {
-    async search(query: string): Promise<number[]> {
-      return searchTreeSearchNodes(searchNodes, query);
+    async search(query: string, options?: TreeSearchOptions): Promise<number[]> {
+      return searchTreeSearchNodes(searchNodes, query, options);
     },
 
     dispose(): void {},
@@ -68,16 +72,16 @@ export function createBestAvailableTreeSearchIndex(
   }
 
   return {
-    async search(query: string): Promise<number[]> {
+    async search(query: string, options?: TreeSearchOptions): Promise<number[]> {
       const worker = ensureWorker();
-      if (worker === null) return localIndex.search(query);
+      if (worker === null) return localIndex.search(query, options);
       try {
-        return await worker.search(query);
+        return await worker.search(query, options);
       } catch {
         workerIndex?.dispose();
         workerIndex = null;
         workerDisabled = true;
-        return localIndex.search(query);
+        return localIndex.search(query, options);
       }
     },
 
@@ -130,7 +134,7 @@ export function createTreeWorkerSearchIndex(
   };
 
   return {
-    async search(query: string): Promise<number[]> {
+    async search(query: string, options?: TreeSearchOptions): Promise<number[]> {
       await initPromise;
 
       return new Promise<number[]>((resolve, reject) => {
@@ -140,6 +144,7 @@ export function createTreeWorkerSearchIndex(
           type: "search",
           requestId,
           query,
+          regex: options?.regex ?? false,
         });
       });
     },
