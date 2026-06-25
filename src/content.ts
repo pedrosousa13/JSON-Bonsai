@@ -16,12 +16,13 @@ import {
   schemeToCssVars,
   type Base16Scheme,
 } from "./themes";
-import { runQuery } from "./query";
+import { createScopeResolver, runQuery } from "./query";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
-  suggestAt,
-  toJmespath,
+  composeNodeQuery,
+  projectLastIndex,
+  suggestAtScoped,
   type KeySuggestion,
   type ValueKind,
 } from "./query-suggest";
@@ -232,7 +233,7 @@ async function init(): Promise<void> {
         <button id="jv-search-clear" title="Close (Esc)">×</button>
       </div>
       <div id="jv-query-panel" hidden>
-        <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`].name" spellcheck="false" autocomplete="off">
+        <input id="jv-query-input" type="text" placeholder="e.g. items[?price > \`10\`] | sort_by(@, &name)" spellcheck="false" autocomplete="off">
         <button id="jv-query-run" title="Run query (Enter)">Run</button>
         <button id="jv-query-close" title="Close (Esc)">×</button>
         <span id="jv-query-error" hidden></span>
@@ -333,6 +334,10 @@ async function init(): Promise<void> {
   const copyKbd = copyBtn.querySelector<HTMLElement>(".jv-kbd")!;
   const loadedViews = new Set<string>(["tree"]);
   let currentView = "tree";
+  // Gate for updateViewControls: the toolbar buttons it touches are declared
+  // later, and setView runs once during init restore before they exist. Flipped
+  // true at the end of init, then the real per-view state is applied.
+  let viewControlsReady = false;
   // Views share #jv-content as scroll container, so each remembers its own
   // scroll offset across switches.
   const viewScrollTops: Record<string, number> = {};
@@ -525,6 +530,29 @@ async function init(): Promise<void> {
       }
     }
 
+    if (target.classList.contains("jv-action-query-node")) {
+      const line = target.closest<HTMLElement>(".jv-line");
+      if (line?.dataset.path) {
+        seedAndRunQuery(
+          composeNodeQuery(activeQueryResult?.expression ?? null, line.dataset.path)
+        );
+      }
+      return;
+    }
+
+    if (target.classList.contains("jv-action-query-all-node")) {
+      const line = target.closest<HTMLElement>(".jv-line");
+      const projected = line?.dataset.path
+        ? projectLastIndex(line.dataset.path)
+        : null;
+      if (projected) {
+        seedAndRunQuery(
+          composeNodeQuery(activeQueryResult?.expression ?? null, projected)
+        );
+      }
+      return;
+    }
+
     if (target.classList.contains("jv-action-copy-node")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (!line) return;
@@ -584,6 +612,7 @@ async function init(): Promise<void> {
     content.scrollTop = viewScrollTops[name] ?? 0;
     // Window renders are skipped while the tree is hidden, so re-render it
     // for the restored scroll position on return. Same for the table.
+    updateViewControls();
     if (name === "tree" && treeMounted) treeView.refresh();
     if (name === "table") tableView?.refresh();
     // An open search follows the active view: the table filters on whatever
@@ -602,6 +631,22 @@ async function init(): Promise<void> {
       }
     }
     persistOriginPrefs();
+  }
+
+  // Depth, search, and the JMESPath query act on the tree (and search/query
+  // also on the table). They do nothing in the static text views (formatted,
+  // raw, schema), so disable them there and close any panel left open.
+  function updateViewControls(): void {
+    if (!viewControlsReady) return;
+    const isTree = currentView === "tree";
+    const treeOrTable = isTree || currentView === "table";
+    levelSelect.disabled = !isTree;
+    searchToggleBtn.disabled = !treeOrTable;
+    queryToggleBtn.disabled = !treeOrTable;
+    if (!treeOrTable) {
+      if (!searchPanel.hidden) closeSearchPanel();
+      if (!queryPanel.hidden) closeQueryPanel();
+    }
   }
 
   viewBtns.forEach((btn) => {
@@ -772,12 +817,16 @@ async function init(): Promise<void> {
     }, 180);
   });
 
-  const searchToggleBtn = document.getElementById("jv-search-toggle")!;
+  const searchToggleBtn = document.getElementById(
+    "jv-search-toggle"
+  ) as HTMLButtonElement;
 
   // Declared before the document keydown listener below so the handler never
   // touches them in their temporal dead zone.
   const queryPanel = document.getElementById("jv-query-panel")!;
-  const queryToggleBtn = document.getElementById("jv-query-toggle")!;
+  const queryToggleBtn = document.getElementById(
+    "jv-query-toggle"
+  ) as HTMLButtonElement;
   const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
   const queryRunBtn = document.getElementById("jv-query-run")!;
   const queryCloseBtn = document.getElementById("jv-query-close")!;
@@ -788,6 +837,8 @@ async function init(): Promise<void> {
   const querySuggestList = document.getElementById("jv-query-suggest")!;
 
   function openSearchPanel(): void {
+    // Search acts on the tree/table only — no-op in the static text views.
+    if (currentView !== "tree" && currentView !== "table") return;
     // Only one popup at a time: close the query panel and settings menu.
     queryPanel.hidden = true;
     closeSettingsMenu();
@@ -917,6 +968,9 @@ async function init(): Promise<void> {
   // document, never a query-result swap. Suggestions are a capped prefix scan
   // over those keys plus a static function list — no jmespath parsing.
   let keyUniverse: string[] | null = null;
+  // Memoized evaluator for the left side of a pipe — powers pipe-aware
+  // autocomplete (`<path> | <relative query>`). Built once; `data` is stable.
+  const scopeResolver = createScopeResolver(data);
   // The dropdown shows either contextual key suggestions (while typing) or the
   // recent-query history (when the field is empty) — one mode at a time.
   type SuggestEntry =
@@ -1024,7 +1078,14 @@ async function init(): Promise<void> {
     const caret = queryInput.selectionStart ?? value.length;
     // Resolve suggestions against the ORIGINAL document, contextual to the path
     // typed so far; keyUniverse is the flat fallback for unresolvable paths.
-    const { items, start } = suggestAt(value, caret, data, keyUniverse, JMESPATH_FUNCTIONS);
+    const { items, start } = suggestAtScoped(
+      value,
+      caret,
+      data,
+      keyUniverse,
+      JMESPATH_FUNCTIONS,
+      scopeResolver
+    );
     if (items.length === 0) {
       hideSuggest();
       return;
@@ -1090,6 +1151,8 @@ async function init(): Promise<void> {
   }
 
   function openQueryPanel(): void {
+    // Querying produces a tree/table result — no-op in the static text views.
+    if (currentView !== "tree" && currentView !== "table") return;
     // Only one popup at a time: close the search panel and settings menu.
     closeSearchPanel();
     closeSettingsMenu();
@@ -1154,6 +1217,16 @@ async function init(): Promise<void> {
     persistOriginPrefs();
   }
 
+  // Seed the query input with a ready-made expression, open the panel, and run
+  // it. Shared by "Query from here" (toolbar + inline) and "Query all".
+  function seedAndRunQuery(expression: string): void {
+    queryInput.value = expression;
+    openQueryPanel();
+    const end = queryInput.value.length;
+    queryInput.setSelectionRange(end, end);
+    void runQueryExpression();
+  }
+
   queryToggleBtn.addEventListener("click", () => {
     if (queryPanel.hidden) openQueryPanel();
     else closeQueryPanel();
@@ -1186,11 +1259,7 @@ async function init(): Promise<void> {
   pathQueryBtn.addEventListener("click", () => {
     const path = pathText.textContent;
     if (!path) return;
-    queryInput.value = toJmespath(path);
-    openQueryPanel();
-    const end = queryInput.value.length;
-    queryInput.setSelectionRange(end, end);
-    void runQueryExpression();
+    seedAndRunQuery(composeNodeQuery(activeQueryResult?.expression ?? null, path));
   });
 
   queryInput.addEventListener("input", () => {
@@ -1400,7 +1469,9 @@ async function init(): Promise<void> {
 
     // Number keys collapse the tree to that depth; 0 expands all. Routes
     // through the same applyLevel path as the stepper (clamped to the tree).
+    // Depth only affects the tree view — ignore the keys elsewhere.
     if (/^[0-9]$/.test(e.key)) {
+      if (currentView !== "tree") return;
       e.preventDefault();
       applyLevel(e.key === "0" ? "all" : Number(e.key));
       return;
@@ -1429,6 +1500,11 @@ async function init(): Promise<void> {
     originalSearchIndex?.dispose();
     resultSearchIndex?.dispose();
   });
+
+  // All toolbar controls now exist; apply the per-view enabled/disabled state
+  // for the (possibly restored) current view.
+  viewControlsReady = true;
+  updateViewControls();
 
   // Restore a remembered query for this origin: seed the input and run it. If
   // it errors against changed data, the original document stays on screen.

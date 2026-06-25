@@ -1,11 +1,16 @@
 import { describe, expect, test } from "vitest";
-import { buildTreeModel } from "./tree-model";
+import { runQuery } from "./query";
+import { buildTreeModel, type JsonValue } from "./tree-model";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
+  composeNodeQuery,
   currentToken,
+  projectLastIndex,
+  splitPipes,
   suggest,
   suggestAt,
+  suggestAtScoped,
   toJmespath,
 } from "./query-suggest";
 
@@ -237,5 +242,140 @@ describe("toJmespath", () => {
     expect(toJmespath('data.items[2]["weird key"].id')).toBe(
       'items[2]."weird key".id'
     );
+  });
+});
+
+describe("projectLastIndex", () => {
+  test("projects the only array index over all elements", () => {
+    expect(projectLastIndex("data[0].company")).toBe("data[*].company");
+  });
+
+  test("projects an index under a named key", () => {
+    expect(projectLastIndex("data.users[3].company")).toBe(
+      "data.users[*].company"
+    );
+  });
+
+  test("projects the last (innermost) index, leaving earlier ones", () => {
+    expect(projectLastIndex("data[0].tags[2]")).toBe("data[0].tags[*]");
+  });
+
+  test("returns null when the path has no array index", () => {
+    expect(projectLastIndex("data.settings.theme")).toBeNull();
+  });
+
+  test("ignores quoted keys that contain digits", () => {
+    expect(projectLastIndex('data["a1"][4].x')).toBe('data["a1"][*].x');
+  });
+});
+
+describe("composeNodeQuery", () => {
+  test("with no active query, returns the path as a root query", () => {
+    expect(composeNodeQuery(null, "data.story.content")).toBe("story.content");
+  });
+
+  test("with an active query, chains the node path onto it via a pipe", () => {
+    // The node lives in the result tree, so its path is relative to the result.
+    expect(composeNodeQuery("story.content", "data.featured_story")).toBe(
+      "story.content | featured_story"
+    );
+  });
+
+  test("the result root node chains as @ (the whole result)", () => {
+    expect(composeNodeQuery("story.content", "data")).toBe("story.content | @");
+  });
+
+  test("composes a projected (query-all) path", () => {
+    expect(composeNodeQuery("items[*]", "data[*].name")).toBe(
+      "items[*] | [*].name"
+    );
+  });
+});
+
+describe("splitPipes", () => {
+  test("no pipe yields a single whole-string segment", () => {
+    expect(splitPipes("a.b.c")).toEqual([{ start: 0, end: 5 }]);
+  });
+
+  test("a single top-level pipe splits into two segments", () => {
+    expect(splitPipes("a | b")).toEqual([
+      { start: 0, end: 2 },
+      { start: 3, end: 5 },
+    ]);
+  });
+
+  test("multiple pipes split into multiple segments", () => {
+    expect(splitPipes("a | b | c")).toHaveLength(3);
+  });
+
+  test("|| (or-operator) is not a boundary", () => {
+    expect(splitPipes("a || b")).toEqual([{ start: 0, end: 6 }]);
+  });
+
+  test("a pipe inside a string literal is not a boundary", () => {
+    expect(splitPipes("a == 'x|y'")).toHaveLength(1);
+  });
+
+  test("a pipe inside brackets is not a boundary", () => {
+    expect(splitPipes("items[?a | b]")).toHaveLength(1);
+  });
+
+  test("a pipe inside parens is not a boundary", () => {
+    expect(splitPipes("f(a | b)")).toHaveLength(1);
+  });
+
+  test("a trailing pipe yields an empty final segment", () => {
+    expect(splitPipes("a | ")).toEqual([
+      { start: 0, end: 2 },
+      { start: 3, end: 4 },
+    ]);
+  });
+});
+
+describe("suggestAtScoped", () => {
+  const doc: JsonValue = {
+    users: [
+      { name: "Ada", role: "admin", tags: ["x"] },
+      { name: "Grace", role: "user" },
+    ],
+    settings: { theme: "dark" },
+    count: 2,
+  };
+  const UNIVERSE = ["U_one", "U_two"];
+  const resolve = (expr: string) => {
+    const outcome = runQuery(doc, expr);
+    return outcome.ok ? outcome.result : null;
+  };
+  const scoped = (text: string, caret = text.length) =>
+    suggestAtScoped(text, caret, doc, UNIVERSE, JMESPATH_FUNCTIONS, resolve);
+  const names = (text: string, caret = text.length) =>
+    scoped(text, caret).items.map((i) => i.name);
+
+  test("no pipe resolves against the document root", () => {
+    expect(names("us")).toEqual(["users"]);
+  });
+
+  test("right of a pipe resolves against the piped scope", () => {
+    // `users[0]` is an object; the right segment sees its keys.
+    expect(names("users[0] | na")).toEqual(["name"]);
+  });
+
+  test("a filter right of a pipe resolves against the piped array", () => {
+    expect(names("users | [?ro")).toEqual(["role"]);
+  });
+
+  test("reports an absolute token start across the pipe", () => {
+    // "users[0] | na" → the "na" token starts at index 11.
+    expect(scoped("users[0] | na").start).toBe(11);
+  });
+
+  test("an unresolvable left side yields no suggestions", () => {
+    // abs() on an object errors → resolve returns null.
+    expect(names("abs(@) | na")).toEqual([]);
+  });
+
+  test("|| does not trigger scoping (stays a root-level expression)", () => {
+    // If `||` were a pipe, the left `users` scope would offer no `us*` key.
+    expect(names("users || us")).toEqual(["users"]);
   });
 });

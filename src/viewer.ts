@@ -36,6 +36,7 @@ interface PoolRow {
   leafValue: HTMLSpanElement;
   leafComma: HTMLSpanElement;
   actionChildren: HTMLButtonElement;
+  actionQueryAll: HTMLButtonElement;
   lastNodeId: number;
   lastIsExpanded: boolean;
 }
@@ -96,12 +97,23 @@ function createPoolRow(): PoolRow {
   actionChildren.textContent = "⇕ children";
   actionChildren.hidden = true;
 
+  const actionQuery = document.createElement("button");
+  actionQuery.className = "jv-action-query-node";
+  actionQuery.title = "Query from here";
+  actionQuery.textContent = "ƒ query";
+
+  const actionQueryAll = document.createElement("button");
+  actionQueryAll.className = "jv-action-query-all-node";
+  actionQueryAll.title = "Query this across all array items";
+  actionQueryAll.textContent = "ƒ all";
+  actionQueryAll.hidden = true;
+
   const actionCopy = document.createElement("button");
   actionCopy.className = "jv-action-copy-node";
   actionCopy.title = "Copy node value";
   actionCopy.textContent = "⧉ copy";
 
-  actions.append(actionChildren, actionCopy);
+  actions.append(actionChildren, actionQuery, actionQueryAll, actionCopy);
 
   line.append(guides, toggle, keySpan, keyPunct, preview, leaf, actions);
 
@@ -119,6 +131,7 @@ function createPoolRow(): PoolRow {
     leafValue,
     leafComma,
     actionChildren,
+    actionQueryAll,
     lastNodeId: -1,
     lastIsExpanded: false,
   };
@@ -238,6 +251,9 @@ function applyPoolRow(row: PoolRow, node: JsonNode, isExpanded: boolean): void {
   }
 
   row.actionChildren.hidden = !node.hasNestedContainers;
+  // "Query all" only makes sense when the node sits inside an array (its path
+  // carries an index to generalize into `[*]`).
+  row.actionQueryAll.hidden = !/\[\d+\]/.test(node.path);
   row.lastNodeId = node.id;
   row.lastIsExpanded = isExpanded;
 }
