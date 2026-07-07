@@ -22,9 +22,16 @@ const options = (name) => ({
   logLevel: "info",
 });
 
+// Only the icons the manifest references — icons/ also holds README branding
+// images that must not ship in store zips.
+const icons = ["icon16.png", "icon48.png", "icon128.png"];
+
 function copyStatic() {
   cpSync(resolve(root, "manifest.json"), resolve(dist, "manifest.json"));
-  cpSync(resolve(root, "icons"), resolve(dist, "icons"), { recursive: true });
+  mkdirSync(resolve(dist, "icons"), { recursive: true });
+  for (const icon of icons) {
+    cpSync(resolve(root, "icons", icon), resolve(dist, "icons", icon));
+  }
 }
 
 rmSync(dist, { recursive: true, force: true });
