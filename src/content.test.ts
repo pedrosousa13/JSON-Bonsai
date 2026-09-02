@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
-import { DEFAULT_THEME_ID } from "./themes";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
+import { DEFAULT_LIGHT_ID, DEFAULT_THEME_ID } from "./themes";
 
 // Spy on collectKeyUniverse through the module so the lazy-build guard can
 // observe when (and how often) content.ts builds the key universe. The rest
@@ -477,14 +477,35 @@ function statefulChrome(initial: Record<string, unknown> = {}): Map<string, unkn
   return store;
 }
 
-function stubChrome(): void {
+// `rejectStorage` stands in for a storage layer that is gone — the extension
+// was reloaded while the tab loaded, or the context was invalidated — so every
+// read and write rejects instead of resolving. `onGet` runs synchronously at
+// the top of every read, before it settles, so a caller can observe the live
+// document at the moment content.ts asks for a preference.
+function stubChrome({
+  rejectStorage = false,
+  onGet,
+}: { rejectStorage?: boolean; onGet?: () => void } = {}): void {
+  const rejected = () => Promise.reject(new Error("Extension context invalidated."));
   (globalThis as any).chrome = {
     storage: {
-      local: {
-        get: vi.fn(async (q: any) => (Array.isArray(q) ? {} : q)),
-        set: vi.fn(async () => {}),
-        remove: vi.fn(async () => {}),
-      },
+      local: rejectStorage
+        ? {
+            get: vi.fn(() => {
+              onGet?.();
+              return rejected();
+            }),
+            set: vi.fn(rejected),
+            remove: vi.fn(rejected),
+          }
+        : {
+            get: vi.fn(async (q: any) => {
+              onGet?.();
+              return Array.isArray(q) ? {} : q;
+            }),
+            set: vi.fn(async () => {}),
+            remove: vi.fn(async () => {}),
+          },
     },
     runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
   };
@@ -1234,4 +1255,194 @@ test("still detects a text/html page with an empty head", async () => {
 
   expect(document.getElementById("jv-root")).not.toBeNull();
   expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+});
+
+// Node reports a floating promise nobody handled through `process`, not through
+// jsdom's window — a rejection raised inside content.ts is created in the Node
+// realm, so window.onunhandledrejection never sees it.
+function watchUnhandledRejections(): { reasons: unknown[]; stop: () => void } {
+  const reasons: unknown[] = [];
+  const handler = (reason: unknown) => reasons.push(reason);
+  process.on("unhandledRejection", handler);
+  return { reasons, stop: () => process.off("unhandledRejection", handler) };
+}
+
+// buildTreeModel is the first thing init calls after it has cleared the page,
+// so making it throw reproduces "wiped, then failed" without any test-only
+// seam in production code. Every other export keeps its real implementation.
+// The unmock is registered here so no caller can leak the mock into the next
+// test by forgetting it.
+function mockFailingMount(): void {
+  onTestFinished(() => vi.doUnmock("./tree-model"));
+  vi.doMock("./tree-model", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("./tree-model")>();
+    return {
+      ...actual,
+      buildTreeModel: () => {
+        throw new Error("mount failed");
+      },
+    };
+  });
+}
+
+test("reads storage before the page is wiped", async () => {
+  vi.resetModules();
+  const raw = '{"a":1}';
+  // Each observation is taken synchronously inside the stub, at call time.
+  // Holding on to the node instead would prove nothing: after the wipe it is
+  // detached, so it still reports the original text whenever it is read.
+  const observations: { originalPre: boolean; viewerMounted: boolean }[] = [];
+  stubChrome({
+    onGet: () => {
+      observations.push({
+        originalPre: document.querySelector("body > pre")?.textContent === raw,
+        viewerMounted: document.getElementById("jv-root") !== null,
+      });
+    },
+  });
+
+  resetDocumentWithBody(`<pre>${raw}</pre>`);
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // The first preference read happened while the response was still on screen.
+  expect(observations.length).toBeGreaterThan(0);
+  expect(observations[0]).toEqual({ originalPre: true, viewerMounted: false });
+
+  // And init did not simply bail out before the wipe: the viewer did mount.
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+});
+
+test("still mounts with default theme and prefs when every storage read rejects", async () => {
+  vi.resetModules();
+  stubChrome({ rejectStorage: true });
+
+  resetDocumentWithBody('<pre>{"a":1}</pre>');
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+
+  // The defaults are really applied, not merely "something rendered".
+  expect((document.getElementById("jv-theme-select") as HTMLSelectElement).value).toBe(
+    DEFAULT_THEME_ID
+  );
+  expect(document.querySelectorAll("#jv-custom-list li").length).toBe(0);
+  expect(
+    (document.getElementById("jv-remember-query") as HTMLInputElement).checked
+  ).toBe(true);
+  expect((document.getElementById("jv-expose-data") as HTMLInputElement).checked).toBe(
+    false
+  );
+});
+
+test("emits no unhandled rejection when every storage read rejects", async () => {
+  vi.resetModules();
+  stubChrome({ rejectStorage: true });
+  const watch = watchUnhandledRejections();
+
+  resetDocumentWithBody('<pre>{"a":1}</pre>');
+
+  try {
+    await import("./content");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(watch.reasons).toEqual([]);
+  } finally {
+    watch.stop();
+  }
+});
+
+test("restores the raw text into a pre when init throws after the wipe", async () => {
+  vi.resetModules();
+  stubChrome();
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  mockFailingMount();
+
+  const raw = '{"a":1}';
+  resetDocumentWithBody(`<pre>${raw}</pre>`);
+
+  try {
+    await import("./content");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // The half-built viewer is gone and the original response is back, as one
+    // plain <pre> — not the toolbar's several.
+    expect(document.getElementById("jv-root")).toBeNull();
+    const pres = document.querySelectorAll("pre");
+    expect(pres.length).toBe(1);
+    expect(pres[0].textContent).toBe(raw);
+    expect(consoleError).toHaveBeenCalled();
+    // applyTheme paints <html> with the theme's toolbar color before the
+    // failure point. Left behind, it would render the recovered text dark on
+    // dark — as good as blank.
+    expect(document.documentElement.style.background).toBe("");
+  } finally {
+    consoleError.mockRestore();
+  }
+});
+
+test("the recovery pre holds the raw text as text, not as markup", async () => {
+  vi.resetModules();
+  stubChrome();
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  mockFailingMount();
+
+  const raw = '{"a":"<img src=x onerror=alert(1)>"}';
+  resetDocumentWithBody(`<pre>${raw.replace(/</g, "&lt;")}</pre>`);
+
+  try {
+    await import("./content");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const pre = document.querySelector("pre")!;
+    expect(pre.textContent).toBe(raw);
+    expect(pre.querySelector("img")).toBeNull();
+  } finally {
+    consoleError.mockRestore();
+  }
+});
+
+test("emits no unhandled rejection when init throws after the wipe", async () => {
+  vi.resetModules();
+  stubChrome();
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  mockFailingMount();
+  const watch = watchUnhandledRejections();
+
+  resetDocumentWithBody('<pre>{"a":1}</pre>');
+
+  try {
+    await import("./content");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(watch.reasons).toEqual([]);
+  } finally {
+    watch.stop();
+    consoleError.mockRestore();
+  }
+});
+
+test("a resolving storage load still mounts with the stored theme and prefs", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-theme-id": DEFAULT_LIGHT_ID,
+    "jv-remember-query": "0",
+  });
+
+  resetDocumentWithBody('<pre>{"a":1}</pre>');
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+  expect((document.getElementById("jv-theme-select") as HTMLSelectElement).value).toBe(
+    DEFAULT_LIGHT_ID
+  );
+  expect(
+    (document.getElementById("jv-remember-query") as HTMLInputElement).checked
+  ).toBe(false);
 });

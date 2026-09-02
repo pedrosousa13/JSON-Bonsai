@@ -155,7 +155,12 @@ async function loadThemeState(): Promise<ThemeState> {
         ? lightId
         : darkId;
     }
-    await chrome.storage.local.set({ "jv-theme-id": themeId });
+    try {
+      await chrome.storage.local.set({ "jv-theme-id": themeId });
+    } catch {
+      // Extension reloaded mid-migration — the derived id still applies to
+      // this page, and the write retries on the next load.
+    }
   }
 
   // Remove every superseded key.
@@ -167,7 +172,12 @@ async function loadThemeState(): Promise<ThemeState> {
     "jv-theme-light",
   ].filter((key) => key in legacy);
   if (stale.length > 0) {
-    await chrome.storage.local.remove(stale);
+    try {
+      await chrome.storage.local.remove(stale);
+    } catch {
+      // Extension reloaded mid-migration — the stale keys are inert, and the
+      // cleanup retries on the next load.
+    }
   }
 
   const stored = await chrome.storage.local.get({ "jv-custom-themes": "[]" });
@@ -182,6 +192,33 @@ async function loadThemeState(): Promise<ThemeState> {
   return { themeId, customs };
 }
 
+// Awaits an already-started fallible read and degrades to `fallback` if it
+// rejects. Init clears the page and cannot put it back, so no preference read
+// is allowed to abort the mount — a reload of the extension while the tab
+// loads, or an invalidated context, rejects every storage call.
+async function withFallback<T>(pending: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await pending;
+  } catch {
+    return fallback;
+  }
+}
+
+// One string preference, stating its default once: it is both the value
+// storage.get substitutes for a missing key and the value a rejected read
+// degrades to.
+async function readStringPref(key: string, fallback: string): Promise<string> {
+  const stored = await withFallback(chrome.storage.local.get({ [key]: fallback }), {
+    [key]: fallback,
+  });
+  return stored[key] as string;
+}
+
+// The raw response text, kept for the recovery path below, and set only once
+// the wipe is about to happen — so a non-null value also means the original
+// document is gone and there is something to restore.
+let wipedRawText: string | null = null;
+
 async function init(): Promise<void> {
   const result = detectJSON();
   if (!result) return;
@@ -195,6 +232,29 @@ async function init(): Promise<void> {
     }
     return prettyRaw;
   }
+
+  // Every fallible read runs before the page is cleared, and each one falls
+  // back to the default it would get on a fresh profile. Deliberately still
+  // sequential and individually fallible — batching them is a separate
+  // concern, and one rejection must not lose the other three answers.
+  const themeState = await withFallback(loadThemeState(), {
+    themeId: DEFAULT_THEME_ID,
+    customs: [],
+  });
+  const originPrefs = await loadOriginPrefs(location.origin);
+  const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
+  // Whether to remember the last query per origin. Global (like theme), since
+  // it's a personal preference, not a property of any one document. On by
+  // default; only an explicit "0" (the user opted out) disables it.
+  let rememberQuery = (await readStringPref(REMEMBER_QUERY_KEY, "1")) !== "0";
+  // Expose the parsed payload as window.data for console use. Off by default —
+  // it surfaces the JSON to the page's main-world scripts, so it's strictly
+  // opt-in; only an explicit "1" (the user toggled it on) enables it.
+  let exposeWindowData = (await readStringPref(EXPOSE_DATA_KEY, "0")) === "1";
+
+  // Last statement before the wipe: from here on, recoverFromInitFailure has
+  // both the text to restore and the knowledge that it must.
+  wipedRawText = raw;
 
   document.documentElement.innerHTML = "";
   const head = document.createElement("head");
@@ -272,20 +332,6 @@ async function init(): Promise<void> {
       <pre id="jv-schema"></pre>
     </div>
   `;
-
-  const themeState = await loadThemeState();
-  const originPrefs = await loadOriginPrefs(location.origin);
-  const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
-  // Whether to remember the last query per origin. Global (like theme), since
-  // it's a personal preference, not a property of any one document. On by
-  // default; only an explicit "0" (the user opted out) disables it.
-  const rememberQueryStored = await chrome.storage.local.get({ [REMEMBER_QUERY_KEY]: "1" });
-  let rememberQuery = rememberQueryStored[REMEMBER_QUERY_KEY] !== "0";
-  // Expose the parsed payload as window.data for console use. Off by default —
-  // it surfaces the JSON to the page's main-world scripts, so it's strictly
-  // opt-in; only an explicit "1" (the user toggled it on) enables it.
-  const exposeDataStored = await chrome.storage.local.get({ [EXPOSE_DATA_KEY]: "0" });
-  let exposeWindowData = exposeDataStored[EXPOSE_DATA_KEY] === "1";
 
   function allSchemes(): Base16Scheme[] {
     return [...BUILTIN_SCHEMES, ...themeState.customs];
@@ -1534,6 +1580,10 @@ async function init(): Promise<void> {
   }
 
   if (exposeWindowData) injectPageData(raw);
+
+  // Mounted, so the recovery path can never fire again — drop the second copy
+  // of the response text rather than hold it for the document's lifetime.
+  wipedRawText = null;
 }
 
 function injectPageData(raw: string): void {
@@ -1563,4 +1613,21 @@ function removeInjectedPageData(): void {
   document.getElementById("jv-page-script")?.remove();
 }
 
-init();
+// Init clears the page before it can render. If anything after that throws,
+// the tab would be left blank with the original response gone until a reload,
+// so put the raw text back as a bare <pre>. textContent, never innerHTML: the
+// response is attacker-controlled.
+function recoverFromInitFailure(error: unknown): void {
+  console.error("[JSON Bonsai] viewer init failed", error);
+  if (wipedRawText === null) return;
+  // applyTheme may already have painted <html> with the theme's toolbar
+  // color; left in place it would show the recovered text dark on dark.
+  document.documentElement.removeAttribute("style");
+  const body = document.createElement("body");
+  const pre = document.createElement("pre");
+  pre.textContent = wipedRawText;
+  body.appendChild(pre);
+  document.documentElement.replaceChildren(document.createElement("head"), body);
+}
+
+init().catch(recoverFromInitFailure);
