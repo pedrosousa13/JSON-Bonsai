@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { DEFAULT_THEME_ID } from "./themes";
 
 // Spy on collectKeyUniverse through the module so the lazy-build guard can
@@ -17,6 +17,14 @@ import { collectKeyUniverse } from "./query-suggest";
 // jsdom doesn't implement scrollIntoView; the suggest list calls it to keep the
 // keyboard-highlighted item in view. Stub it once for every test in this file.
 Element.prototype.scrollIntoView = vi.fn();
+
+// The NDJSON Content-Type test shadows document.contentType with an own
+// property. Deleting it uncovers jsdom's prototype getter again, so the
+// override cannot leak into whichever test runs next. A no-op for every other
+// test, which never defines the property.
+afterEach(() => {
+  delete (document as any).contentType;
+});
 
 test("each view keeps its own scroll position across switches", async () => {
   (globalThis as any).chrome = {
@@ -1072,4 +1080,71 @@ test("toggling the expose-data checkbox persists the key and injects live", asyn
   expect(set).toHaveBeenCalledWith({ "jv-expose-window-data": "0" });
   expect(document.getElementById("jv-json-data")).toBeNull();
   expect(document.getElementById("jv-page-script")).toBeNull();
+});
+
+// Only the detection tests below use this. Every other test in the file seeds
+// its page with document.body.innerHTML, which is enough when the assertion is
+// about the tree content.ts renders. It is not enough here: these tests assert
+// the page is left *unchanged*, which needs a document.body that really is the
+// one on screen. Earlier tests leave a rebuilt document behind — content.ts
+// wipes <html> and appends its own head/body, and jsdom's fragment parser adds
+// a second empty pair — so after them document.body can be a stray node that
+// content.ts never looks at, and an innerHTML assignment to it would "pass"
+// without proving anything. So build the document outright instead.
+function resetDocumentWithBody(bodyHtml: string): void {
+  const head = document.createElement("head");
+  const body = document.createElement("body");
+  body.innerHTML = bodyHtml;
+  document.documentElement.replaceChildren(head, body);
+}
+
+test("leaves a scalar-only plain-text page untouched", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  resetDocumentWithBody("<pre>1\n2\n3</pre>");
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // No explicit NDJSON Content-Type and no container line: not ours.
+  expect(document.getElementById("jv-root")).toBeNull();
+  expect(document.querySelector("body > pre")?.textContent).toBe("1\n2\n3");
+});
+
+test("still detects object-per-line NDJSON in a plain-text page", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  resetDocumentWithBody('<pre>{"a":1}\n{"a":2}</pre>');
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data[0]"]')).not.toBeNull();
+  expect(document.querySelector('[data-path="data[1]"]')).not.toBeNull();
+});
+
+test("an explicit NDJSON Content-Type still renders scalar lines as an array", async () => {
+  vi.resetModules();
+  stubChrome();
+  // The file-level afterEach deletes this again.
+  Object.defineProperty(document, "contentType", {
+    value: "application/x-ndjson",
+    configurable: true,
+  });
+
+  resetDocumentWithBody("<pre>1\n2</pre>");
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(
+    document.querySelector('[data-path="data[0]"] .jv-number')?.textContent
+  ).toBe("1");
+  expect(
+    document.querySelector('[data-path="data[1]"] .jv-number')?.textContent
+  ).toBe("2");
 });

@@ -10,8 +10,12 @@ import {
 // synthetic array, one element per line. Detection is conservative: it returns
 // null unless the whole text fails to parse as a single JSON value AND every
 // non-empty line parses independently as valid JSON, with at least two such
-// lines. That guard keeps ordinary pretty-printed multi-line JSON — which
-// parses fine as a single value — from ever being treated as NDJSON.
+// lines, AND at least one of them is an object or an array. That guard keeps
+// ordinary pretty-printed multi-line JSON — which parses fine as a single
+// value — from ever being treated as NDJSON, and it keeps plain-text files off
+// the NDJSON path: real NDJSON streams are overwhelmingly object-per-line, so
+// a scalar-only file like "1\n2\n3" is far more likely prose or a number list
+// than a JSON stream. null counts as a scalar here, not a container.
 //
 // Lossless numbers from every line are merged into one ExactNumberMap; the
 // per-line holders are distinct objects, so they never collide. Returns null
@@ -35,13 +39,17 @@ export function parseNdjson(raw: string): {
   const nonEmpty = lines.filter((line) => line.trim() !== "");
   if (nonEmpty.length < 2) return null;
 
+  let hasContainer = false;
   for (const line of nonEmpty) {
+    let value: unknown;
     try {
-      JSON.parse(line);
+      value = JSON.parse(line);
     } catch {
       return null;
     }
+    if (typeof value === "object" && value !== null) hasContainer = true;
   }
+  if (!hasContainer) return null;
 
   // Confirmed NDJSON: build the synthetic array, preserving exact numbers.
   return parseLines(nonEmpty);
