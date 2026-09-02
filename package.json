@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "zip": "npm run build && node ./scripts/zip-dist.mjs",
     "package": "npm run build && node ./scripts/zip-dist.mjs json-bonsai-chrome.zip && node ./scripts/zip-dist.mjs json-bonsai-firefox.zip",
+    "source": "git archive --format=zip -o json-bonsai-source.zip HEAD",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
