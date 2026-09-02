@@ -19,6 +19,12 @@ function createContainer(): HTMLElement {
   return container;
 }
 
+// Row 2 has no own "constructor" key, so every cell path must read it as
+// missing rather than as the inherited Object.prototype.constructor.
+function prototypeNamedRows(): JsonValue[] {
+  return [{ constructor: "custom", n: 1 }, { n: 2 }];
+}
+
 describe("checkTableEligibility", () => {
   test("accepts an array of plain objects", () => {
     const data: JsonValue = [{ a: 1 }, { b: 2 }, { c: 3 }];
@@ -109,6 +115,23 @@ describe("sortRowIndices", () => {
     const rows: JsonValue[] = [{}, { n: null }, { n: 1 }];
     expect(sortRowIndices(rows, "n", "asc")).toEqual([2, 1, 0]);
   });
+
+  test("a prototype-named column keeps a row without the key last both ways", () => {
+    const rows = prototypeNamedRows();
+    // Ascending held even before the fix; desc catches the regression.
+    expect(sortRowIndices(rows, "constructor", "asc")).toEqual([0, 1]);
+    expect(sortRowIndices(rows, "constructor", "desc")).toEqual([0, 1]);
+  });
+
+  test("a prototype-named column sorts on the values rows own", () => {
+    const rows: JsonValue[] = JSON.parse(
+      '[{"toString":"zeta"},{"toString":"alpha"},{"hasOwnProperty":1}]'
+    );
+    expect(sortRowIndices(rows, "toString", "asc")).toEqual([1, 0, 2]);
+    expect(sortRowIndices(rows, "toString", "desc")).toEqual([0, 1, 2]);
+    expect(sortRowIndices(rows, "hasOwnProperty", "asc")).toEqual([2, 0, 1]);
+    expect(sortRowIndices(rows, "hasOwnProperty", "desc")).toEqual([2, 0, 1]);
+  });
 });
 
 describe("createTableView", () => {
@@ -187,6 +210,35 @@ describe("createTableView", () => {
     expect(firstCellTexts()).toEqual(["3", "2", "1"]);
     th.click();
     expect(firstCellTexts()).toEqual(["2", "3", "1"]);
+  });
+
+  test("a prototype-named column shows the missing marker, not inherited text", () => {
+    const container = createContainer();
+    createTableView(container, prototypeNamedRows());
+    const rows = container.querySelectorAll(".jv-table-row");
+    const first = rows[0].querySelectorAll(".jv-table-cell");
+    expect(first[1].className).toContain("jv-string");
+    expect(first[1].textContent).toBe("custom");
+    const second = rows[1].querySelectorAll(".jv-table-cell");
+    expect(second[1].className).toContain("jv-table-missing");
+    expect(second[1].textContent).toBe("–");
+  });
+
+  test("toString and hasOwnProperty columns read own properties only", () => {
+    const container = createContainer();
+    createTableView(
+      container,
+      JSON.parse('[{"toString":"own text","hasOwnProperty":7},{"n":1}]')
+    );
+    const rows = container.querySelectorAll(".jv-table-row");
+    const first = rows[0].querySelectorAll(".jv-table-cell");
+    expect(first[1].textContent).toBe("own text");
+    expect(first[2].textContent).toBe("7");
+    const second = rows[1].querySelectorAll(".jv-table-cell");
+    expect(second[1].className).toContain("jv-table-missing");
+    expect(second[1].textContent).toBe("–");
+    expect(second[2].className).toContain("jv-table-missing");
+    expect(second[2].textContent).toBe("–");
   });
 
   test("notes the column cap when exceeded", () => {
@@ -287,6 +339,18 @@ describe("table filter", () => {
     // Clearing restores all rows, still in the active (descending) sort.
     view.setFilter("");
     expect(visibleCellTexts(container, 1)).toEqual(["10", "3", "2", "1"]);
+  });
+
+  test("a prototype-named column contributes no inherited search text", () => {
+    const container = createContainer();
+    const view = createTableView(container, prototypeNamedRows());
+
+    // The inherited Object.prototype.constructor source text must never be
+    // searchable; only the row that owns the key has any text at all.
+    expect(view.setFilter("native code").shown).toBe(0);
+    expect(view.setFilter("function").shown).toBe(0);
+    expect(view.setFilter("custom").shown).toBe(1);
+    expect(visibleCellTexts(container, 1)).toEqual(["custom"]);
   });
 
   test("renders and matches the exact source text of imprecise numbers", () => {
@@ -424,6 +488,24 @@ describe("table export", () => {
     expect(clipboard.last()).toBe(
       "big\r\n-123456789012345678901234567890"
     );
+  });
+
+  test("CSV leaves a prototype-named cell empty when the row lacks the key", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, prototypeNamedRows());
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe("constructor,n\r\ncustom,1\r\n,2");
+  });
+
+  test("TSV leaves a prototype-named cell empty when the row lacks the key", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, prototypeNamedRows());
+    exportButton(container, "Copy TSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe("constructor\tn\r\ncustom\t1\r\n\t2");
   });
 
   test("Download CSV builds a blob anchor with a sensible filename", () => {
