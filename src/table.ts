@@ -40,6 +40,19 @@ function isPlainObject(
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Reads one cell by column name. A bare `row[column]` would resolve a column
+ * named after an `Object.prototype` member ("constructor", "toString", …)
+ * through the prototype chain, so a row missing that key would yield a
+ * function instead of `undefined` and every missing-value check would fail.
+ */
+function cellValue(
+  row: { [key: string]: JsonValue },
+  column: string
+): JsonValue | undefined {
+  return Object.hasOwn(row, column) ? row[column] : undefined;
+}
+
 export function checkTableEligibility(data: JsonValue): TableEligibility {
   if (!Array.isArray(data)) {
     return {
@@ -127,8 +140,8 @@ export function sortRowIndices(
   indices.sort((a, b) => {
     const rowA = rows[a];
     const rowB = rows[b];
-    const valueA = isPlainObject(rowA) ? rowA[column] : undefined;
-    const valueB = isPlainObject(rowB) ? rowB[column] : undefined;
+    const valueA = isPlainObject(rowA) ? cellValue(rowA, column) : undefined;
+    const valueB = isPlainObject(rowB) ? cellValue(rowB, column) : undefined;
     const missingA = valueA === undefined;
     const missingB = valueB === undefined;
     if (missingA || missingB) {
@@ -200,7 +213,7 @@ function computeColumnTemplate(rows: JsonValue[], columns: string[]): string {
     const row = rows[i];
     if (!isPlainObject(row)) continue;
     for (let c = 0; c < columns.length; c += 1) {
-      const value = row[columns[c]];
+      const value = cellValue(row, columns[c]);
       if (value === undefined) continue;
       const length = cellText(value).length;
       if (length > widths[c]) widths[c] = length;
@@ -315,7 +328,11 @@ export function createTableView(
 
   const rowPool: TablePoolRow[] = [];
 
-  function exactNumberText(holder: object, key: string, value: JsonValue): string | undefined {
+  function exactNumberText(
+    holder: object,
+    key: string,
+    value: JsonValue | undefined
+  ): string | undefined {
     return typeof value === "number"
       ? exactNumbers?.get(holder)?.get(key)
       : undefined;
@@ -351,9 +368,10 @@ export function createTableView(
         }
         return cells;
       }
-      return columns.map((column) =>
-        exportCellValue(row[column], exactNumberText(row, column, row[column]))
-      );
+      return columns.map((column) => {
+        const value = cellValue(row, column);
+        return exportCellValue(value, exactNumberText(row, column, value));
+      });
     });
     return { columns, rows };
   }
@@ -413,7 +431,7 @@ export function createTableView(
       }
       const rowTexts = new Array<string>(columns.length);
       for (let c = 0; c < columns.length; c += 1) {
-        const value = row[columns[c]];
+        const value = cellValue(row, columns[c]);
         rowTexts[c] = value === undefined ? "" : searchTextFor(row, columns[c], value);
       }
       texts[i] = rowTexts;
@@ -489,7 +507,7 @@ export function createTableView(
     }
     for (let c = 0; c < columns.length; c += 1) {
       const cell = poolRow.cells[c];
-      const value = row[columns[c]];
+      const value = cellValue(row, columns[c]);
       cell.className = cellMatchClass(cellClass(value), rowIndex, c);
       cell.textContent = displayText(row, columns[c], value);
     }
