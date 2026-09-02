@@ -1,6 +1,11 @@
 import type { JsonValue } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
-import { serializeDelimited, type DelimitedFormat } from "./csv";
+import {
+  serializeDelimited,
+  type DelimitedField,
+  type DelimitedFormat,
+  type DelimitedTable,
+} from "./csv";
 
 const EXPORT_FILENAMES: Record<DelimitedFormat, string> = {
   csv: "json-bonsai-export.csv",
@@ -160,11 +165,16 @@ function cellText(value: JsonValue | undefined): string {
 // Untruncated cell value for export. Scalars become their plain string form;
 // objects and arrays are JSON-serialized; absent cells become empty strings.
 // Exact source text (lossless numbers) overrides the scalar form when present.
-function exportCellValue(value: JsonValue | undefined, exact: string | undefined): string {
-  if (exact !== undefined) return exact;
+// Numbers are flagged so the serializer leaves a genuine leading "-" alone.
+function exportCellValue(
+  value: JsonValue | undefined,
+  exact: string | undefined
+): DelimitedField {
+  if (exact !== undefined) return { text: exact, numeric: true };
   if (value === undefined) return "";
   if (value === null) return "null";
   if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "number") return { text: String(value), numeric: true };
   return String(value);
 }
 
@@ -328,11 +338,11 @@ export function createTableView(
   // Builds the export rows from the on-screen state: current columns, and the
   // current filtered + sorted order (`order` is what the table renders).
   // Non-object elements contribute their value in the first column only.
-  function collectExportTable(): { columns: string[]; rows: string[][] } {
+  function collectExportTable(): DelimitedTable {
     const rows = order.map((rowIndex) => {
       const row = data[rowIndex];
       if (!isPlainObject(row)) {
-        const cells = new Array<string>(columns.length).fill("");
+        const cells = new Array<DelimitedField>(columns.length).fill("");
         if (columns.length > 0) {
           cells[0] = exportCellValue(
             row,
