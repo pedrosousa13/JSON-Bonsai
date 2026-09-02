@@ -387,6 +387,45 @@ describe("table export", () => {
     expect(clipboard.last()).toBe('obj,arr\r\n"{""a"":1}","[1,2]"');
   });
 
+  test("neutralizes a formula-leading string cell", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, [
+      { name: '=HYPERLINK("http://evil","click")' },
+    ]);
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe(
+      'name\r\n"\'=HYPERLINK(""http://evil"",""click"")"'
+    );
+  });
+
+  test("keeps a JSON number negative unprefixed but neutralizes the string form", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    createTableView(container, [{ num: -5, str: "-5" }]);
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe("num,str\r\n-5,'-5");
+  });
+
+  test("keeps a lossless negative number unprefixed", async () => {
+    const clipboard = stubClipboard();
+    const container = createContainer();
+    const row = { big: -123456789012345678901234567890 };
+    const exactNumbers = new WeakMap<object, Map<string, string>>();
+    exactNumbers.set(
+      row,
+      new Map([["big", "-123456789012345678901234567890"]])
+    );
+    createTableView(container, [row], { exactNumbers });
+    exportButton(container, "Copy CSV").click();
+    await Promise.resolve();
+    expect(clipboard.last()).toBe(
+      "big\r\n-123456789012345678901234567890"
+    );
+  });
+
   test("Download CSV builds a blob anchor with a sensible filename", () => {
     stubClipboard();
     const createObjectURL = vi.fn(() => "blob:stub");

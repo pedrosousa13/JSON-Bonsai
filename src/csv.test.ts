@@ -105,3 +105,75 @@ describe("serializeDelimited (TSV)", () => {
     ).toBe('c\r\n"x\ny"');
   });
 });
+
+describe("formula neutralization", () => {
+  test("prefixes a leading = with a single quote, then quotes by RFC 4180", () => {
+    expect(
+      serializeDelimited(
+        {
+          columns: ["name"],
+          rows: [['=HYPERLINK("http://evil","click")']],
+        },
+        "csv"
+      )
+    ).toBe('name\r\n"\'=HYPERLINK(""http://evil"",""click"")"');
+  });
+
+  test("prefixes every formula-leading character", () => {
+    // A tab needs no quoting in CSV; a CR does.
+    expect(
+      serializeDelimited(
+        {
+          columns: ["c"],
+          rows: [["=a"], ["+a"], ["-a"], ["@a"], ["\ta"], ["\ra"]],
+        },
+        "csv"
+      )
+    ).toBe("c\r\n'=a\r\n'+a\r\n'-a\r\n'@a\r\n'\ta\r\n\"'\ra\"");
+  });
+
+  test("prefixes a string that looks like a negative number", () => {
+    expect(serializeDelimited({ columns: ["c"], rows: [["-5"]] }, "csv")).toBe(
+      "c\r\n'-5"
+    );
+  });
+
+  test("leaves a numeric cell unprefixed", () => {
+    expect(
+      serializeDelimited(
+        { columns: ["c"], rows: [[{ text: "-5", numeric: true }]] },
+        "csv"
+      )
+    ).toBe("c\r\n-5");
+  });
+
+  test("prefixes formula-leading header names", () => {
+    expect(
+      serializeDelimited({ columns: ["=cmd", "ok"], rows: [] }, "csv")
+    ).toBe("'=cmd,ok");
+  });
+
+  test("leaves empty and ordinary cells untouched", () => {
+    expect(
+      serializeDelimited(
+        { columns: ["a", "b"], rows: [["", "plain text"]] },
+        "csv"
+      )
+    ).toBe("a,b\r\n,plain text");
+  });
+
+  test("only the first character triggers a prefix", () => {
+    expect(
+      serializeDelimited({ columns: ["c"], rows: [["a=b"]] }, "csv")
+    ).toBe("c\r\na=b");
+  });
+
+  test("neutralizes on the TSV path too", () => {
+    expect(
+      serializeDelimited(
+        { columns: ["c"], rows: [["=a"], [{ text: "-5", numeric: true }]] },
+        "tsv"
+      )
+    ).toBe("c\r\n'=a\r\n-5");
+  });
+});
