@@ -1,0 +1,6 @@
+{
+  "stampVersion": "2.0.0",
+  "tracker": { "kind": "github", "repo": "pedrosousa13/JSON-Bonsai" },
+  "merge": { "policy": "squash" },
+  "attackSurface": true
+}
