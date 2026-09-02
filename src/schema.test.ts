@@ -85,6 +85,97 @@ describe("inferSchema", () => {
     expect(schema.type).toBe("object");
     expect(schema.properties.a).toMatchObject({ type: "object" });
   });
+
+  test("merges a second object shape already held in an anyOf", () => {
+    expect(inferSchema([1, { a: 1 }, { b: 2 }])).toEqual({
+      type: "array",
+      items: {
+        anyOf: [
+          { type: "number" },
+          {
+            type: "object",
+            properties: { a: { type: "number" }, b: { type: "number" } },
+            required: [],
+          },
+        ],
+      },
+    });
+  });
+
+  test("merges the items of two array shapes", () => {
+    expect(inferSchema([[1], ["a"]])).toEqual({
+      type: "array",
+      items: {
+        type: "array",
+        items: { anyOf: [{ type: "number" }, { type: "string" }] },
+      },
+    });
+  });
+
+  test("keeps a key required when every object variant has it", () => {
+    expect(inferSchema([{ a: 1 }, 1, { a: 2 }])).toEqual({
+      type: "array",
+      items: {
+        anyOf: [
+          { type: "object", properties: { a: { type: "number" } }, required: ["a"] },
+          { type: "number" },
+        ],
+      },
+    });
+  });
+
+  test("merges nested object shapes inside two array shapes", () => {
+    expect(inferSchema([[{ a: 1 }], [{ b: 2 }]])).toEqual({
+      type: "array",
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { a: { type: "number" }, b: { type: "number" } },
+          required: [],
+        },
+      },
+    });
+  });
+
+  test("merges three object shapes that follow a scalar", () => {
+    expect(inferSchema(["x", { a: 1 }, { b: 2 }, { c: 3 }])).toEqual({
+      type: "array",
+      items: {
+        anyOf: [
+          { type: "string" },
+          {
+            type: "object",
+            properties: {
+              a: { type: "number" },
+              b: { type: "number" },
+              c: { type: "number" },
+            },
+            required: [],
+          },
+        ],
+      },
+    });
+  });
+
+  test("keeps one variant per scalar type when a type repeats", () => {
+    expect(inferSchema([1, "a", 2])).toEqual({
+      type: "array",
+      items: { anyOf: [{ type: "number" }, { type: "string" }] },
+    });
+  });
+
+  test("merging an empty array with a populated one keeps the untyped items variant", () => {
+    // An empty array infers `items: {}` ("anything"), so merging it with a
+    // typed array yields `anyOf: [{}, ...]`. Pinned as-is, not endorsed.
+    expect(inferSchema([[], [1]])).toEqual({
+      type: "array",
+      items: {
+        type: "array",
+        items: { anyOf: [{}, { type: "number" }] },
+      },
+    });
+  });
 });
 
 describe("toJsonSchema", () => {
