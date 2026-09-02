@@ -1091,11 +1091,20 @@ test("toggling the expose-data checkbox persists the key and injects live", asyn
 // a second empty pair — so after them document.body can be a stray node that
 // content.ts never looks at, and an innerHTML assignment to it would "pass"
 // without proving anything. So build the document outright instead.
-function resetDocumentWithBody(bodyHtml: string): void {
+function resetDocumentWithBody(bodyHtml: string, headHtml = ""): void {
   const head = document.createElement("head");
+  head.innerHTML = headHtml;
   const body = document.createElement("body");
   body.innerHTML = bodyHtml;
   document.documentElement.replaceChildren(head, body);
+}
+
+function setContentType(value: string): void {
+  // The file-level afterEach deletes this again.
+  Object.defineProperty(document, "contentType", {
+    value,
+    configurable: true,
+  });
 }
 
 test("leaves a scalar-only plain-text page untouched", async () => {
@@ -1129,11 +1138,7 @@ test("still detects object-per-line NDJSON in a plain-text page", async () => {
 test("an explicit NDJSON Content-Type still renders scalar lines as an array", async () => {
   vi.resetModules();
   stubChrome();
-  // The file-level afterEach deletes this again.
-  Object.defineProperty(document, "contentType", {
-    value: "application/x-ndjson",
-    configurable: true,
-  });
+  setContentType("application/x-ndjson");
 
   resetDocumentWithBody("<pre>1\n2</pre>");
 
@@ -1147,4 +1152,86 @@ test("an explicit NDJSON Content-Type still renders scalar lines as an array", a
   expect(
     document.querySelector('[data-path="data[1]"] .jv-number')?.textContent
   ).toBe("2");
+});
+
+test("leaves an authored text/html page with a populated head untouched", async () => {
+  vi.resetModules();
+  stubChrome();
+  setContentType("text/html");
+
+  resetDocumentWithBody(
+    '<pre>{"a":1}</pre>',
+    '<title>x</title><script src="app.js"></script>'
+  );
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // A real page that happens to print JSON keeps its own head and body.
+  expect(document.getElementById("jv-root")).toBeNull();
+  expect(document.querySelector("head > title")?.textContent).toBe("x");
+  expect(document.querySelector('head > script[src="app.js"]')).not.toBeNull();
+  expect(document.querySelector("body > pre")?.textContent).toBe('{"a":1}');
+});
+
+test("still detects a text/plain page whose body is a lone pre", async () => {
+  vi.resetModules();
+  stubChrome();
+  setContentType("text/plain");
+
+  resetDocumentWithBody('<pre>{"a":1}</pre>');
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+});
+
+test("still detects an application/json document whatever its shape and head", async () => {
+  vi.resetModules();
+  stubChrome();
+  setContentType("application/json");
+
+  resetDocumentWithBody(
+    '<div>{"a":1}</div><div></div>',
+    '<title>x</title><script src="app.js"></script>'
+  );
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+});
+
+test("still detects a text/html page whose head holds only a meta element", async () => {
+  vi.resetModules();
+  stubChrome();
+  setContentType("text/html");
+
+  resetDocumentWithBody(
+    '<pre>{"a":1}</pre>',
+    '<meta name="color-scheme" content="light dark">'
+  );
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
+});
+
+test("still detects a text/html page with an empty head", async () => {
+  vi.resetModules();
+  stubChrome();
+  setContentType("text/html");
+
+  resetDocumentWithBody('<pre>{"a":1}</pre>');
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  expect(document.getElementById("jv-root")).not.toBeNull();
+  expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
 });

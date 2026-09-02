@@ -47,6 +47,24 @@ import "./styles/viewer.css";
 const LARGE_TREE_NODE_THRESHOLD = 8000;
 const LARGE_TREE_INITIAL_EXPANSION_DEPTH = 2;
 
+// A raw text response rendered by the browser has no head of its own — Chrome
+// injects only <meta name="color-scheme" content="light dark">, and a bare
+// server emitting JSON under a text/html Content-Type has nothing at all. So
+// anything that is not a <meta> means somebody authored the page — a <title>,
+// <script>, <style>, <link>, a <base>, a stray <div> — and its lone <pre> is
+// content, not a document to take over. style/link are not tolerated on
+// purpose: an authored page nearly always carries one, a raw response never
+// does.
+// The tolerance is deliberately broader than what Chrome injects: any <meta>
+// passes, not only <meta name="color-scheme">. An authored page whose head
+// holds nothing but <meta charset>/<meta name=viewport> is therefore still
+// taken over. That is a known, accepted gap.
+function hasAuthoredHead(): boolean {
+  return Array.from(document.head.children).some(
+    (el) => !(el instanceof HTMLMetaElement)
+  );
+}
+
 function detectJSON(): {
   data: JsonValue;
   raw: string;
@@ -54,14 +72,16 @@ function detectJSON(): {
   isNdjson: boolean;
 } | null {
   const pre = document.querySelector("body > pre");
-  const isPlainBody =
-    document.body.children.length === 1 && pre instanceof HTMLPreElement;
   const contentType = document.contentType || "";
+  const isRawTextPage =
+    document.body.children.length === 1 &&
+    pre instanceof HTMLPreElement &&
+    (!contentType.includes("html") || !hasAuthoredHead());
   const hasJSONContentType = contentType.includes("json");
   const isNdjsonContentType =
     contentType.includes("ndjson") || contentType.includes("jsonl");
 
-  if (!isPlainBody && !hasJSONContentType) return null;
+  if (!isRawTextPage && !hasJSONContentType) return null;
 
   const raw = (pre ? pre.textContent : document.body.textContent || "")!.trim();
   if (!raw) return null;
