@@ -59,11 +59,12 @@ export function inferSchema(value: unknown): object {
   return rootSchema;
 }
 
-// Merges `b` into `a` in place and returns `a`. `a` is always an intermediate
-// accumulator (an array item's schema being reduced), never aliased elsewhere,
-// so mutating it is safe and avoids copying the accumulated properties on every
-// merge — that copy made schema inference O(n^2) over arrays of objects with
-// many distinct keys.
+// Merges `b` into `a` in place and returns `a`. Mutating `a` is safe because
+// every caller replaces the slot it came from with the result: the reduce above
+// overwrites the accumulator, and `mergeSchemas` rebuilds its `anyOf` wrapper on
+// every merge, carrying the mutated variant forward. In-place merging avoids
+// copying the accumulated properties on every merge — that copy made schema
+// inference O(n^2) over arrays of objects with many distinct keys.
 function mergeObjectSchemas(a: any, b: any): object {
   const properties: Record<string, object> = a.properties ?? (a.properties = {});
   const bReq = new Set<string>(b.required ?? []);
@@ -91,7 +92,20 @@ function mergeSchemas(a: object, b: object): object {
   const merged = [...variantsA];
   for (const v of variantsB) {
     const vt = (v as any).type;
-    if (!merged.some(m => (m as any).type === vt)) merged.push(v);
+    const existing: any = merged.find(m => (m as any).type === vt);
+    if (!existing) { merged.push(v); continue; }
+    // Same type: fold the newcomer into the variant already there, so a second
+    // object or array shape widens it instead of being dropped. Scalars (and
+    // the untyped `{}` fallback) carry nothing to merge, so they dedupe.
+    if (vt === "object") mergeObjectSchemas(existing, v);
+    else if (vt === "array") {
+      const bItems = (v as any).items;
+      if (bItems !== undefined) {
+        existing.items = existing.items !== undefined
+          ? mergeSchemas(existing.items, bItems)
+          : bItems;
+      }
+    }
   }
 
   return merged.length === 1 ? merged[0] : { anyOf: merged };
