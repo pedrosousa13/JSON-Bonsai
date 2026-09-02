@@ -11,3 +11,6 @@ dist
 .claude/
 test-results/
 playwright-report/
+.scratch/
+.factory/run.lock
+.factory/journal.json
