@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { parseNdjson } from "./ndjson";
+import { parseNdjson, parseNdjsonLines } from "./ndjson";
 import { parseWithExactNumbers } from "./lossless-numbers";
 
 // Reviver source access needs V8 11.4+ (Node 21+, Chrome 114+); the lossless
@@ -78,5 +78,47 @@ describe("parseNdjson", () => {
 
   test("does NOT detect a single line even with a trailing newline", () => {
     expect(parseNdjson('{"a": 1}\n')).toBeNull();
+  });
+
+  test("does NOT detect number-only lines as NDJSON", () => {
+    expect(parseNdjson("1\n2\n3")).toBeNull();
+  });
+
+  test("does NOT detect boolean-only lines as NDJSON", () => {
+    expect(parseNdjson("true\nfalse")).toBeNull();
+  });
+
+  test("does NOT detect null-only lines as NDJSON", () => {
+    expect(parseNdjson("null\nnull")).toBeNull();
+  });
+
+  test("detects two objects, one per line", () => {
+    const result = parseNdjson('{"a":1}\n{"a":2}');
+
+    expect(result).not.toBeNull();
+    expect(result!.data).toEqual([{ a: 1 }, { a: 2 }]);
+  });
+
+  test("detects a mix of scalar and object lines — one container is enough", () => {
+    const result = parseNdjson('1\n{"a":1}');
+
+    expect(result).not.toBeNull();
+    expect(result!.data).toEqual([1, { a: 1 }]);
+  });
+
+  test("detects array-per-line NDJSON", () => {
+    const result = parseNdjson("[1]\n[2]");
+
+    expect(result).not.toBeNull();
+    expect(result!.data).toEqual([[1], [2]]);
+  });
+});
+
+describe("parseNdjsonLines", () => {
+  test("keeps scalar-only lines, which the explicit Content-Type vouches for", () => {
+    const result = parseNdjsonLines("1\n2");
+
+    expect(result).not.toBeNull();
+    expect(result!.data).toEqual([1, 2]);
   });
 });
