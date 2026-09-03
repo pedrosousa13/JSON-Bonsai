@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "JSON Bonsai FF worker probe",
+  "version": "1.0",
+  "description": "Throwaway probe for issue #84. Not shipped.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ff-worker-probe@json-bonsai.test",
+      "strict_min_version": "115.0"
+    }
+  },
+  "background": {
+    "scripts": ["config.js", "background.js"]
+  },
+  "host_permissions": ["http://127.0.0.1/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["worker-host.html", "worker-host.js", "tree-worker.js"],
+      "matches": ["http://127.0.0.1/*"]
+    },
+    {
+      "resources": ["worker-host-dyn.html"],
+      "matches": ["http://127.0.0.1/*"],
+      "use_dynamic_url": true
+    }
+  ]
+}
