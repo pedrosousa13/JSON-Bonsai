@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
 
 import { parseNdjson, parseNdjsonLines } from "./ndjson";
-import { parseWithExactNumbers } from "./lossless-numbers";
+import {
+  parseWithExactNumbers,
+  stringifyWithExactNumbers,
+} from "./lossless-numbers";
+import { buildTreeModel } from "./tree-model";
 
 // Reviver source access needs V8 11.4+ (Node 21+, Chrome 114+); the lossless
 // assertions degrade to plain parse below it, so they are guarded.
 const hasReviverSource = parseWithExactNumbers("{}").exactNumbers !== null;
+const hasRawJSON =
+  typeof (JSON as { rawJSON?: unknown }).rawJSON === "function";
 
 describe("parseNdjson", () => {
   test("parses three JSON objects, one per line, into an array of three", () => {
@@ -106,6 +112,17 @@ describe("parseNdjson", () => {
     expect(result!.data).toEqual([1, { a: 1 }]);
   });
 
+  test.runIf(hasReviverSource)(
+    "preserves a bare big-number line on the detection path too",
+    () => {
+      const result = parseNdjson('9007199254740993\n{"a": 1}')!;
+
+      expect(result.exactNumbers!.get(result.data)?.get("0")).toBe(
+        "9007199254740993"
+      );
+    }
+  );
+
   test("detects array-per-line NDJSON", () => {
     const result = parseNdjson("[1]\n[2]");
 
@@ -121,4 +138,72 @@ describe("parseNdjsonLines", () => {
     expect(result).not.toBeNull();
     expect(result!.data).toEqual([1, 2]);
   });
+
+  test.runIf(hasReviverSource)(
+    "records a bare number line against the synthetic array",
+    () => {
+      const raw = '9007199254740993\n{"id": 9007199254740993}';
+      const result = parseNdjsonLines(raw)!;
+
+      expect(result.exactNumbers).not.toBeNull();
+      // A top-level scalar has no holder of its own, so the synthetic array
+      // stands in for one, keyed by the line's index.
+      expect(result.exactNumbers!.get(result.data)?.get("0")).toBe(
+        "9007199254740993"
+      );
+      // The object line keeps recording against its own holder.
+      const second = result.data[1] as object;
+      expect(result.exactNumbers!.get(second)?.get("id")).toBe(
+        "9007199254740993"
+      );
+    }
+  );
+
+  test.runIf(hasReviverSource)(
+    "gives the tree exact text for both a bare number line and an object line",
+    () => {
+      const raw = '9007199254740993\n{"id": 9007199254740993}';
+      const result = parseNdjsonLines(raw)!;
+      const model = buildTreeModel(result.data, result.exactNumbers);
+
+      // numberText is what the viewer renders and what marks a node exact.
+      const bare = model.nodes[model.pathToId.get("data[0]")!];
+      const nested = model.nodes[model.pathToId.get("data[1].id")!];
+      expect(bare.numberText).toBe("9007199254740993");
+      expect(nested.numberText).toBe("9007199254740993");
+    }
+  );
+
+  test.runIf(hasReviverSource && hasRawJSON)(
+    "round-trips both a bare number line and an object line through Copy JSON",
+    () => {
+      const raw = '9007199254740993\n{"id": 9007199254740993}';
+      const result = parseNdjsonLines(raw)!;
+
+      expect(
+        stringifyWithExactNumbers(result.data, result.exactNumbers)
+      ).toBe('[9007199254740993,{"id":9007199254740993}]');
+    }
+  );
+
+  test.runIf(hasReviverSource)("preserves -0 on its own line", () => {
+    const result = parseNdjsonLines('{"a": 1}\n-0')!;
+
+    expect(result.exactNumbers!.get(result.data)?.get("1")).toBe("-0");
+  });
+
+  test.runIf(hasReviverSource)(
+    "leaves lossless scalar lines and container lines untouched",
+    () => {
+      const result = parseNdjsonLines('1\n[9007199254740993]\n{"a": 2}')!;
+
+      // Nothing lossy at the top level, so the array holder stays unrecorded.
+      expect(result.exactNumbers!.get(result.data)).toBeUndefined();
+      // The array line still records against the parsed array itself.
+      const inner = result.data[1] as unknown[];
+      expect(result.exactNumbers!.get(inner)?.get("0")).toBe(
+        "9007199254740993"
+      );
+    }
+  );
 });

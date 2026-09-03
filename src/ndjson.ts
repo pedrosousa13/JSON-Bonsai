@@ -85,7 +85,19 @@ function parseLines(nonEmpty: string[]): {
     };
   }
 
+  // A line that is a bare number has no holder of its own — its exact token
+  // would land on JSON.parse's discarded root wrapper. Point each line at its
+  // slot in the synthetic array instead; the map is keyed on the array's
+  // identity, so recording into it while it is still filling is fine.
   const exactNumbers: ExactNumberMap = new WeakMap();
-  const data = nonEmpty.map((line) => parseIntoExactNumbers(line, exactNumbers));
+  const data: JsonValue[] = [];
+  nonEmpty.forEach((line, index) => {
+    data.push(
+      parseIntoExactNumbers(line, exactNumbers, {
+        holder: data,
+        key: String(index),
+      })
+    );
+  });
   return { data, exactNumbers };
 }

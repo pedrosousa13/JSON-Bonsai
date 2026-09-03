@@ -70,29 +70,61 @@ export function numberLosesPrecision(source: string, value: number): boolean {
   return canonicalNumber(source) !== canonicalNumber(String(value));
 }
 
+// Where a lossy *root-level* number should be recorded. The holder the reviver
+// hands us for the root is JSON.parse's throwaway `{"": value}` wrapper, which
+// the caller can never look up again, so a caller that splices roots into a
+// container of its own (NDJSON lines into a synthetic array) names that slot
+// instead.
+export interface RootSlot {
+  holder: object;
+  key: string;
+}
+
 // Parses `raw` (assuming reviver source support), recording lossy number
 // tokens into `into`. Keyed by holder identity, so writing several independent
 // parses into one shared map never collides — distinct parses produce distinct
 // holders.
 export function parseIntoExactNumbers(
   raw: string,
-  into: ExactNumberMap
+  into: ExactNumberMap,
+  rootSlot?: RootSlot
 ): JsonValue {
-  return parseWithSource(raw, function (key, value, context) {
+  function record(holder: object, key: string, source: string): void {
+    let perHolder = into.get(holder);
+    if (!perHolder) {
+      perHolder = new Map();
+      into.set(holder, perHolder);
+    }
+    perHolder.set(key, source);
+  }
+
+  // The reviver walks bottom-up, so its last call is always the root wrapper's
+  // — which makes the token it carries the root's. Tracking the last call is
+  // how we tell the root apart from a member literally named "" (`{"": 1}`
+  // reaches the reviver with key "" too, but not last).
+  let rootSource: string | undefined;
+  const data = parseWithSource(raw, function (key, value, context) {
+    rootSource =
+      typeof context?.source === "string" ? context.source : undefined;
     if (
       typeof value === "number" &&
       typeof context?.source === "string" &&
       numberLosesPrecision(context.source, value)
     ) {
-      let perHolder = into.get(this);
-      if (!perHolder) {
-        perHolder = new Map();
-        into.set(this, perHolder);
-      }
-      perHolder.set(key, context.source);
+      record(this, key, context.source);
     }
     return value;
   });
+
+  if (
+    rootSlot &&
+    typeof data === "number" &&
+    rootSource !== undefined &&
+    numberLosesPrecision(rootSource, data)
+  ) {
+    record(rootSlot.holder, rootSlot.key, rootSource);
+  }
+  return data;
 }
 
 // JSON.parse that also reports which number tokens lost precision, keyed by
