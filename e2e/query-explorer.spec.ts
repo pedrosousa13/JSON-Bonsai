@@ -3,13 +3,16 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { launchWithExtension, serveJson, type FixtureServer } from "./helpers";
 
-const payload = JSON.stringify({
-  users: [
-    { name: "Ada", role: "admin" },
-    { name: "Grace", role: "user" },
-  ],
-  settings: { theme: "dark" },
-});
+// Deliberately awkward source: tabs, ragged inner spacing, and keys out of
+// alphabetical order. A re-serialization would flatten every bit of it, so
+// the raw-view assertion below can tell source text from a rebuilt string.
+const payload = `{
+\t"users": [
+\t\t{ "name": "Ada",   "role": "admin" },
+\t\t{ "name": "Grace", "role": "user" }
+\t],
+\t"settings": { "theme": "dark",  "accent": "teal" }
+}`;
 
 let context: BrowserContext;
 let page: Page;
@@ -169,6 +172,11 @@ test("an active query drives the raw view, its copy, and clears back", async () 
   // Clearing the chip puts the document's own source text back in raw.
   await page.click("#jv-query-chip-clear");
   await page.click('.jv-view-btn[data-view="raw"]');
-  await expect(page.locator("#jv-raw")).toHaveText(payload);
+  // Byte for byte, not toHaveText's whitespace-normalized compare: the
+  // fixture's tabs and ragged spacing are exactly what a re-serializing raw
+  // view would lose, and normalization would hide the difference.
+  await expect
+    .poll(() => page.locator("#jv-raw").textContent())
+    .toBe(payload);
   await expect(page.locator("#jv-raw-note")).toBeHidden();
 });

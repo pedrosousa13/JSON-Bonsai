@@ -323,7 +323,7 @@ async function init(): Promise<void> {
       <div id="jv-tree"></div>
       <div id="jv-table"></div>
       <pre id="jv-formatted"></pre>
-      <div id="jv-raw-note" hidden>Query result — serialized JSON, not the document's source text.</div>
+      <div id="jv-raw-note" hidden>Query result — a compact serialization, not the document's source text.</div>
       <pre id="jv-raw"></pre>
       <pre id="jv-schema"></pre>
     </div>
@@ -436,8 +436,10 @@ async function init(): Promise<void> {
   let textCache: Partial<Record<TextView, string>> = {};
 
   function renderTextView(name: TextView): string {
-    // Query results reuse holders from `data` wherever JMESPath passed a
-    // value through, so exact number tokens survive into the result.
+    // Formatted and raw serialize through `exactNumbers`, which is keyed by
+    // the holder objects of `data`: query results reuse those holders
+    // wherever JMESPath passed a value through, so exact number tokens
+    // survive into the result. Schema reads types only and needs none of it.
     if (name === "formatted") {
       return stringifyWithExactNumbers(currentDocument(), exactNumbers, 2);
     }
@@ -797,8 +799,9 @@ async function init(): Promise<void> {
     refreshTableForDocument();
   }
 
-  // The table shows whichever document is on screen, so a query swap (or
-  // restore) rebuilds it and re-checks whether the new root is tabular.
+  // The table shows whichever document is on screen, so a document swap
+  // rebuilds it and re-checks whether the new root is tabular. Called only
+  // from refreshViewsForDocument().
   function refreshTableForDocument(): void {
     loadedViews.delete("table");
     tableView?.dispose();
@@ -1438,7 +1441,11 @@ async function init(): Promise<void> {
 
   async function restoreOriginalTree(): Promise<void> {
     if (activeQueryResult === null) return;
+    // The cache is cleared at the assignment, not just in
+    // refreshViewsForDocument() below, so textCache can never hold text for
+    // a document that activeQueryResult no longer names.
     activeQueryResult = null;
+    textCache = {};
     queryChip.hidden = true;
     showQueryError("");
     resultSearchIndex?.dispose();
@@ -1467,11 +1474,13 @@ async function init(): Promise<void> {
     }
 
     showQueryError("");
+    // Same as in restoreOriginalTree(): clearing at the assignment keeps
+    // textCache from ever describing a document activeQueryResult has left.
     activeQueryResult = { expression, result: outcome.result };
+    textCache = {};
     queryChipText.textContent = expression;
     queryChip.hidden = false;
-    // Query results reuse holders from `data` where JMESPath passed them
-    // through, so preserved numbers survive in unprojected subtrees.
+    // exactNumbers applies to the result too — see renderTextView().
     const resultModel = buildTreeModel(outcome.result, exactNumbers);
     resultSearchIndex?.dispose();
     resultSearchIndex = createLocalTreeSearchIndex(resultModel);
