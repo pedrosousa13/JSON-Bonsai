@@ -387,7 +387,9 @@ async function init(): Promise<void> {
   const searchStatus = document.getElementById("jv-search-status")!;
   const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
   const searchNextBtn = document.getElementById("jv-search-next") as HTMLButtonElement;
-  const searchClearBtn = document.getElementById("jv-search-clear") as HTMLButtonElement;
+  // Closes the whole search panel — not to be confused with searchInputClearBtn,
+  // which only empties the field. (The DOM id stays #jv-search-clear.)
+  const searchCloseBtn = document.getElementById("jv-search-clear") as HTMLButtonElement;
   // Grabbed early: setView runs before the search wiring below and checks
   // whether the panel is open.
   const searchPanel = document.getElementById("jv-search-panel")!;
@@ -861,11 +863,33 @@ async function init(): Promise<void> {
     searchHistoryToggle.hidden = !hasHistory;
     // History that vanishes under an open popover (the user opted out) takes
     // the popover with it, or focus would sit on a detached button.
-    if (!hasHistory) closeSearchHistory();
+    if (!hasHistory && searchHistoryOpen()) {
+      // The opener is going away too, so closeSearchHistory has nowhere to
+      // hand focus back to. If focus was still inside the field it is about to
+      // be orphaned onto <body>, so park it on the input; if the user is
+      // somewhere else entirely (the settings checkbox they just clicked),
+      // leave them there.
+      const orphaned = searchField.contains(document.activeElement);
+      closeSearchHistory();
+      if (orphaned) searchInput.focus();
+    }
   }
 
   function searchHistoryOpen(): boolean {
     return !searchHistoryMenu.hidden;
+  }
+
+  // Escape is layered: an open history popover is the innermost dismissable
+  // thing in the panel, so it absorbs the key before the panel itself does.
+  // The menu's own keydown handler only sees Escape while focus is inside the
+  // menu, and focus is reachable outside it (Shift+Tab lands on the toggle,
+  // then the input, and neither closes the popover) — so both panel-closing
+  // Escape paths have to ask here first. They cannot defer to one another:
+  // the input's handler stops propagation before the document one runs.
+  function escapeClosedSearchHistory(): boolean {
+    if (!searchHistoryOpen()) return false;
+    closeSearchHistory(true);
+    return true;
   }
 
   function historyItems(): HTMLButtonElement[] {
@@ -1083,6 +1107,7 @@ async function init(): Promise<void> {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      if (escapeClosedSearchHistory()) return;
       closeSearchPanel();
     }
   });
@@ -1104,7 +1129,7 @@ async function init(): Promise<void> {
     void treeView.stepSearch(1).then(updateSearchUi);
   });
 
-  searchClearBtn.addEventListener("click", () => {
+  searchCloseBtn.addEventListener("click", () => {
     closeSearchPanel();
   });
 
@@ -1135,6 +1160,7 @@ async function init(): Promise<void> {
 
     if (e.key === "Escape" && !searchPanel.hidden) {
       e.preventDefault();
+      if (escapeClosedSearchHistory()) return;
       closeSearchPanel();
       return;
     }

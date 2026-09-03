@@ -125,3 +125,36 @@ test("Escape closes the popover and leaves the search panel open", async () => {
   await page.keyboard.press("Escape");
   await expect(page.locator("#jv-search-panel")).toBeHidden();
 });
+
+// Menu items are tabIndex=-1, so Shift+Tab walks straight out of the open
+// popover onto the toggle and then the input, both of which deliberately leave
+// it open. Escape from either has to dismiss the popover, not the panel.
+test("Escape closes only the popover with focus back on the toggle or input", async () => {
+  await page.click("#jv-search-toggle");
+  await expect(page.locator("#jv-search-panel")).toBeVisible();
+
+  await page.click("#jv-search-history-toggle");
+  await expect(page.locator("#jv-search-history")).toBeVisible();
+  await page.keyboard.press("Shift+Tab");
+  expect(await activeId()).toBe("jv-search-history-toggle");
+  await expect(page.locator("#jv-search-history")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#jv-search-history")).toBeHidden();
+  await expect(page.locator("#jv-search-panel")).toBeVisible();
+  expect(await activeId()).toBe("jv-search-history-toggle");
+
+  // One stop further out: the field is empty, so its clear button is hidden
+  // and a second Shift+Tab reaches the input.
+  await page.click("#jv-search-history-toggle");
+  await expect(page.locator("#jv-search-history")).toBeVisible();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  expect(await activeId()).toBe("jv-search-input");
+  await expect(page.locator("#jv-search-history")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#jv-search-history")).toBeHidden();
+  await expect(page.locator("#jv-search-panel")).toBeVisible();
+  expect(await activeId()).toBe("jv-search-history-toggle");
+});

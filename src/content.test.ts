@@ -1077,6 +1077,83 @@ test("Escape in the history popover closes only the popover", async () => {
   expect(panel.hidden).toBe(true);
 });
 
+test("Escape closes only the popover when focus has left the menu", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentSearches: ["foo"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ foo: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const panel = document.getElementById("jv-search-panel")!;
+  const popover = document.getElementById("jv-search-history")!;
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+
+  // Items are tabIndex=-1, so Shift+Tab out of the open menu lands on the
+  // toggle and then the input, both of which keep the popover open.
+  historyToggle.click();
+  historyToggle.focus();
+  expect(popover.hidden).toBe(false);
+
+  historyToggle.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
+
+  expect(popover.hidden).toBe(true);
+  expect(panel.hidden).toBe(false);
+  expect(document.activeElement).toBe(historyToggle);
+
+  // Same again, one stop further out: focus on the input itself.
+  historyToggle.click();
+  searchInput.focus();
+  expect(popover.hidden).toBe(false);
+
+  searchInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
+
+  expect(popover.hidden).toBe(true);
+  expect(panel.hidden).toBe(false);
+  expect(document.activeElement).toBe(historyToggle);
+});
+
+test("history vanishing under an open popover parks focus on the search input", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentSearches: ["foo"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ foo: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const popover = document.getElementById("jv-search-history")!;
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+
+  historyToggle.click();
+  expect(popover.hidden).toBe(false);
+
+  // Opting out of remembering drops the history, which takes the popover and
+  // its opener with it while focus is still on a menu item.
+  (document.getElementById("jv-remember-query") as HTMLInputElement).click();
+
+  expect(popover.hidden).toBe(true);
+  expect(historyToggle.hidden).toBe(true);
+  expect(document.activeElement).toBe(searchInput);
+});
+
 test("only one popup is open at a time across search, query, and settings", async () => {
   vi.resetModules();
   stubChrome();

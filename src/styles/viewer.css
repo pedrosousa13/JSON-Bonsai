@@ -416,7 +416,6 @@ html:has(#jv-root) {
   outline: none;
 }
 
-
 .jv-query-suggest-name {
   overflow: hidden;
   text-overflow: ellipsis;
