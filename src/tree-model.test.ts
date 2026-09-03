@@ -86,4 +86,22 @@ describe("buildTreeModel", () => {
     expect(outer.hasNestedContainers).toBe(false);
     expect(scalar.hasNestedContainers).toBe(false);
   });
+
+  test("flags array elements and their descendants as inside an array", () => {
+    const model = buildTreeModel({ "a[0]": 1, users: [{ tags: ["x"] }] });
+    const inArrayByPath = new Map(
+      model.nodes.map((node) => [node.path, node.inArray])
+    );
+
+    expect(inArrayByPath).toEqual(
+      new Map([
+        ["data", false],
+        ['data["a[0]"]', false],
+        ["data.users", false],
+        ["data.users[0]", true],
+        ["data.users[0].tags", true],
+        ["data.users[0].tags[0]", true],
+      ])
+    );
+  });
 });

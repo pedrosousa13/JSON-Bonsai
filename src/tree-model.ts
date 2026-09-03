@@ -30,6 +30,9 @@ export interface JsonNode {
   // null for everything else. Display and copy prefer it over `value`.
   numberText: string | null;
   isArrayElement: boolean;
+  // This node is an array element, or descends from one. Equivalently: its path
+  // carries a real array index, so it can be generalized with `[*]`.
+  inArray: boolean;
   isLast: boolean;
   childCount: number;
   label: string;
@@ -121,6 +124,7 @@ interface VisitTask {
   path: string;
   depth: number;
   isArrayElement: boolean;
+  inArray: boolean;
   isLast: boolean;
   siblingIndex: number;
 }
@@ -147,6 +151,7 @@ export function buildTreeModel(
       path: "data",
       depth: 0,
       isArrayElement: false,
+      inArray: false,
       isLast: true,
       siblingIndex: 0,
     },
@@ -154,7 +159,7 @@ export function buildTreeModel(
 
   while (stack.length > 0) {
     const task = stack.pop()!;
-    const { value, numberText, parentId, key, path, depth, isArrayElement, isLast, siblingIndex } = task;
+    const { value, numberText, parentId, key, path, depth, isArrayElement, inArray, isLast, siblingIndex } = task;
     const type = typeOf(value);
     const childCount = countEntries(value);
     const label = buildLabel(type, childCount);
@@ -173,6 +178,7 @@ export function buildTreeModel(
       value,
       numberText,
       isArrayElement,
+      inArray,
       isLast,
       childCount,
       label,
@@ -206,6 +212,7 @@ export function buildTreeModel(
           path: buildPath(path, index, true),
           depth: depth + 1,
           isArrayElement: true,
+          inArray: true,
           isLast: index === value.length - 1,
           siblingIndex: index,
         });
@@ -222,6 +229,7 @@ export function buildTreeModel(
           path: buildPath(path, childKey, false),
           depth: depth + 1,
           isArrayElement: false,
+          inArray,
           isLast: index === keys.length - 1,
           siblingIndex: index,
         });

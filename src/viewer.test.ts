@@ -7,12 +7,23 @@ import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
 import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
 import { runQuery } from "./query";
+import { composeNodeQuery, projectLastIndex } from "./query-suggest";
 
 function createContainer(): HTMLElement {
   const container = document.createElement("div");
   document.body.innerHTML = "";
   document.body.appendChild(container);
   return container;
+}
+
+// The "ƒ all" button on the rendered row for `path`. Attribute selectors are
+// awkward for paths carrying quotes, so match on the dataset instead.
+function queryAllAction(container: HTMLElement, path: string): HTMLElement {
+  const row = Array.from(container.querySelectorAll<HTMLElement>(".jv-line")).find(
+    (line) => line.dataset.path === path
+  );
+  if (!row) throw new Error(`no rendered row for path ${path}`);
+  return row.querySelector<HTMLElement>(".jv-action-query-all-node")!;
 }
 
 function createDeferred<T>() {
@@ -436,5 +447,26 @@ describe("createTreeView", () => {
     const renderedRows = container.querySelectorAll(".jv-line").length;
     expect(renderedRows).toBeGreaterThan(0);
     expect(renderedRows).toBeLessThan(model.totalNodes);
+  });
+
+  test("hides the all-array-items action on a key that merely looks indexed", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({ "a[0]": 1 });
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    expect(queryAllAction(container, 'data["a[0]"]').hidden).toBe(true);
+  });
+
+  test("offers the all-array-items action on a real array element's field", async () => {
+    const container = createContainer();
+    const model = buildTreeModel([{ a: 1 }]);
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    expect(queryAllAction(container, "data[0].a").hidden).toBe(false);
+    expect(composeNodeQuery(null, projectLastIndex("data[0].a")!)).toBe("[*].a");
   });
 });

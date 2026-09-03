@@ -331,6 +331,47 @@ describe("projectLastIndex", () => {
   test("ignores quoted keys that contain digits", () => {
     expect(projectLastIndex('data["a1"][4].x')).toBe('data["a1"][*].x');
   });
+
+  test("returns null when the only bracketed digits sit inside a quoted key", () => {
+    expect(projectLastIndex('data["k[0]y"].x')).toBeNull();
+  });
+
+  test("projects the real index, not a later quoted key's bracketed digits", () => {
+    expect(projectLastIndex('data[2]["k[0]y"]')).toBe('data[*]["k[0]y"]');
+  });
+
+  test("projects past a quoted key holding an escaped quote", () => {
+    const doc: JsonValue = [{ 'say "hi"': 5 }];
+    const model = buildTreeModel(doc);
+    const node = model.nodes.find((n) => n.key === 'say "hi"')!;
+
+    expect(projectLastIndex(node.path)).toBe('data[*]["say \\"hi\\""]');
+  });
+
+  test("a projected path with a bracket-bearing quoted key still runs", () => {
+    const doc: JsonValue = [{ "k[0]y": 5 }, { "k[0]y": 6 }];
+    const model = buildTreeModel(doc);
+    const node = model.nodes.find((n) => n.key === "k[0]y")!;
+    const projected = projectLastIndex(node.path)!;
+
+    expect(projected).toBe('data[*]["k[0]y"]');
+    expect(runQuery(doc, composeNodeQuery(null, projected))).toEqual({
+      ok: true,
+      result: [5, 6],
+    });
+  });
+
+  test("a projected path with an escaped-quote key still runs", () => {
+    const doc: JsonValue = [{ 'say "hi"': 5 }, { 'say "hi"': 6 }];
+    const model = buildTreeModel(doc);
+    const node = model.nodes.find((n) => n.key === 'say "hi"')!;
+    const projected = projectLastIndex(node.path)!;
+
+    expect(runQuery(doc, composeNodeQuery(null, projected))).toEqual({
+      ok: true,
+      result: [5, 6],
+    });
+  });
 });
 
 describe("composeNodeQuery", () => {
