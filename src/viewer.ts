@@ -248,9 +248,9 @@ function applyPoolRow(row: PoolRow, node: JsonNode, isExpanded: boolean): void {
   }
 
   row.actionChildren.hidden = !node.hasNestedContainers;
-  // "Query all" only makes sense when the node sits inside an array (its path
-  // carries an index to generalize into `[*]`).
-  row.actionQueryAll.hidden = !/\[\d+\]/.test(node.path);
+  // "Query all" only makes sense when the node sits inside an array — the model
+  // knows, so don't guess from the path (a key named `a[0]` is not an index).
+  row.actionQueryAll.hidden = !node.inArray;
   row.lastNodeId = node.id;
   row.lastIsExpanded = isExpanded;
 }

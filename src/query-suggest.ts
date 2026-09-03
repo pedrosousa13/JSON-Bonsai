@@ -157,15 +157,29 @@ export function toJmespath(nodePath: string): string {
 
 // Generalize a node path to "this field across all array items" by replacing
 // the LAST array index with a `[*]` wildcard — `data[0].company` →
-// `data[*].company`, `data[0].tags[2]` → `data[0].tags[*]`. Only pure-digit
-// brackets are indices; quoted keys (`["a1"]`) are left alone. Returns null when
-// the path has no array index (nothing to project). Pairs with toJmespath.
+// `data[*].company`, `data[0].tags[2]` → `data[0].tags[*]`. Segments are walked
+// with closingBracket, so a quoted key is one segment however its content looks:
+// only a pure-digit segment is an index, and `["k[0]y"]` is never rewritten.
+// Returns null when the path has no array index (nothing to project) — which is
+// exactly when no node on the path is an array element, since buildPath emits a
+// digit-only segment for those alone. Pairs with toJmespath — which spells the
+// same "is this an index?" test as `!inner.startsWith('"')`, deliberately
+// looser: toJmespath must pass an already-projected `[*]` straight through,
+// while here a `[*]` must not read as an index. Do not unify the two.
 export function projectLastIndex(path: string): string | null {
-  const re = /\[\d+\]/g;
-  let last: RegExpExecArray | null = null;
-  for (let m = re.exec(path); m !== null; m = re.exec(path)) last = m;
-  if (last === null) return null;
-  return `${path.slice(0, last.index)}[*]${path.slice(last.index + last[0].length)}`;
+  let lastOpen = -1;
+  let lastClose = -1;
+  for (let i = 0; i < path.length; i += 1) {
+    if (path[i] !== "[") continue;
+    const close = closingBracket(path, i);
+    if (/^\d+$/.test(path.slice(i + 1, close))) {
+      lastOpen = i;
+      lastClose = close;
+    }
+    i = close;
+  }
+  if (lastOpen === -1) return null;
+  return `${path.slice(0, lastOpen)}[*]${path.slice(lastClose + 1)}`;
 }
 
 // Build the JMESPath query for "query from here" on a node. `nodePath` is the
