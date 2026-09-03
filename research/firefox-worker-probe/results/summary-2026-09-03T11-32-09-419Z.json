@@ -1,42 +1,44 @@
 {
-  "firefoxVersion": "Mozilla Firefox 154.0b3",
-  "startedAt": "2026-09-03T11-09-49-318Z",
-  "resultsFile": "/Users/pedrosousa/Documents/projects/experiments/json-bonsai/research/firefox-worker-probe/results/results-2026-09-03T11-09-49-318Z.jsonl",
+  "firefoxVersion": "Mozilla Firefox 156.0b2",
+  "firefoxVersionAtEnd": "Mozilla Firefox 156.0b2",
+  "firefoxVersionStable": true,
+  "startedAt": "2026-09-03T11-32-09-419Z",
+  "resultsFile": "/Users/pedrosousa/Documents/projects/experiments/json-bonsai/research/firefox-worker-probe/results/results-2026-09-03T11-32-09-419Z.jsonl",
   "cpuWindows": [
     {
-      "tag": "worker-running",
-      "wallMs": 6056,
-      "totalCpuSeconds": 5.39,
-      "maxProcessCpuSeconds": 5,
-      "maxProcessPid": 95354
+      "tag": "regex-running",
+      "wallMs": 3542,
+      "totalCpuSeconds": 3.63,
+      "maxProcessCpuSeconds": 3.56,
+      "maxProcessPid": 10272
     },
     {
-      "tag": "after-terminate",
-      "wallMs": 6059,
-      "totalCpuSeconds": 1.01,
-      "maxProcessCpuSeconds": 0.91,
-      "maxProcessPid": 95425
+      "tag": "regex-terminated",
+      "wallMs": 3551,
+      "totalCpuSeconds": 0.68,
+      "maxProcessCpuSeconds": 0.53,
+      "maxProcessPid": 10672
     },
     {
       "tag": "busy-running",
       "wallMs": 6043,
-      "totalCpuSeconds": 6.42,
-      "maxProcessCpuSeconds": 6.07,
-      "maxProcessPid": 95875
+      "totalCpuSeconds": 6.34,
+      "maxProcessCpuSeconds": 5.96,
+      "maxProcessPid": 11198
     },
     {
       "tag": "busy-after-terminate",
-      "wallMs": 6093,
-      "totalCpuSeconds": 0.24,
-      "maxProcessCpuSeconds": 0.14,
-      "maxProcessPid": 95862
+      "wallMs": 6057,
+      "totalCpuSeconds": 0.59,
+      "maxProcessCpuSeconds": 0.54,
+      "maxProcessPid": 11172
     },
     {
       "tag": "main-thread-freeze",
-      "wallMs": 6766,
-      "totalCpuSeconds": 9.39,
-      "maxProcessCpuSeconds": 6.71,
-      "maxProcessPid": 96197
+      "wallMs": 6722,
+      "totalCpuSeconds": 8.78,
+      "maxProcessCpuSeconds": 6.64,
+      "maxProcessPid": 12069
     }
   ],
   "launches": [
@@ -53,9 +55,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=survey",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://d148f36b-4ffe-4af5-aa13-49c1b918ee29/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://d148f36b-4ffe-4af5-aa13-49c1b918ee29/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://e9572c48-a729-48b9-8655-9fbc4e5f023a/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://e9572c48-a729-48b9-8655-9fbc4e5f023a/worker-host-dyn.html"
         },
         {
           "launch": "survey-nonesrc-default-perms",
@@ -75,21 +77,6 @@
           },
           "violations": [
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -102,7 +89,7 @@
           "mode": "survey",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://d148f36b-4ffe-4af5-aa13-49c1b918ee29/worker-host.html",
+          "url": "moz-extension://e9572c48-a729-48b9-8655-9fbc4e5f023a/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -110,23 +97,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://d148f36b-4ffe-4af5-aa13-49c1b918ee29/worker-host.html#tgssrmbxuhi6",
+          "frameHref": "moz-extension://e9572c48-a729-48b9-8655-9fbc4e5f023a/worker-host.html#tb6lsu0g2p4s",
           "violations": [
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -140,7 +112,7 @@
           "mode": "survey",
           "experiment": "B2-dynamic-url-iframe",
           "resource": "worker-host-dyn.html",
-          "url": "moz-extension://d148f36b-4ffe-4af5-aa13-49c1b918ee29/worker-host-dyn.html",
+          "url": "moz-extension://e9572c48-a729-48b9-8655-9fbc4e5f023a/worker-host-dyn.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -148,23 +120,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://d148f36b-4ffe-4af5-aa13-49c1b918ee29/worker-host-dyn.html#tb0h45kyilfe",
+          "frameHref": "moz-extension://e9572c48-a729-48b9-8655-9fbc4e5f023a/worker-host-dyn.html#trq86nmypmz",
           "violations": [
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -179,7 +136,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "survey-none",
@@ -194,9 +152,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/none?mode=survey",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://3cafb43e-d892-47db-8b16-00d91d19e67e/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://3cafb43e-d892-47db-8b16-00d91d19e67e/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://a67f891d-f5bd-439c-93ea-ef0df8882fb7/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://a67f891d-f5bd-439c-93ea-ef0df8882fb7/worker-host-dyn.html"
         },
         {
           "launch": "survey-none",
@@ -217,7 +175,7 @@
           "mode": "survey",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://3cafb43e-d892-47db-8b16-00d91d19e67e/worker-host.html",
+          "url": "moz-extension://a67f891d-f5bd-439c-93ea-ef0df8882fb7/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -225,7 +183,7 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://3cafb43e-d892-47db-8b16-00d91d19e67e/worker-host.html#tnzt0izifd0h",
+          "frameHref": "moz-extension://a67f891d-f5bd-439c-93ea-ef0df8882fb7/worker-host.html#t9al9n35umr",
           "violations": []
         },
         {
@@ -234,7 +192,7 @@
           "mode": "survey",
           "experiment": "B2-dynamic-url-iframe",
           "resource": "worker-host-dyn.html",
-          "url": "moz-extension://3cafb43e-d892-47db-8b16-00d91d19e67e/worker-host-dyn.html",
+          "url": "moz-extension://a67f891d-f5bd-439c-93ea-ef0df8882fb7/worker-host-dyn.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -242,7 +200,7 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://3cafb43e-d892-47db-8b16-00d91d19e67e/worker-host-dyn.html#txqi4rercp4",
+          "frameHref": "moz-extension://a67f891d-f5bd-439c-93ea-ef0df8882fb7/worker-host-dyn.html#t292gxcon5zg",
           "violations": []
         },
         {
@@ -252,7 +210,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "survey-self",
@@ -267,9 +226,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/self?mode=survey",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://66681d74-60d6-47ef-80b0-4659ca8e65e8/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://66681d74-60d6-47ef-80b0-4659ca8e65e8/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://b71286d8-18ac-4bb9-9139-c509e2539233/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://b71286d8-18ac-4bb9-9139-c509e2539233/worker-host-dyn.html"
         },
         {
           "launch": "survey-self",
@@ -292,11 +251,6 @@
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'self'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'self'"
             }
           ]
         },
@@ -306,7 +260,7 @@
           "mode": "survey",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://66681d74-60d6-47ef-80b0-4659ca8e65e8/worker-host.html",
+          "url": "moz-extension://b71286d8-18ac-4bb9-9139-c509e2539233/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -314,13 +268,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://66681d74-60d6-47ef-80b0-4659ca8e65e8/worker-host.html#tskm5kbt8ah",
+          "frameHref": "moz-extension://b71286d8-18ac-4bb9-9139-c509e2539233/worker-host.html#ts2fkmmb48wq",
           "violations": [
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'self'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -334,7 +283,7 @@
           "mode": "survey",
           "experiment": "B2-dynamic-url-iframe",
           "resource": "worker-host-dyn.html",
-          "url": "moz-extension://66681d74-60d6-47ef-80b0-4659ca8e65e8/worker-host-dyn.html",
+          "url": "moz-extension://b71286d8-18ac-4bb9-9139-c509e2539233/worker-host-dyn.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -342,13 +291,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://66681d74-60d6-47ef-80b0-4659ca8e65e8/worker-host-dyn.html#ts027uxtg09s",
+          "frameHref": "moz-extension://b71286d8-18ac-4bb9-9139-c509e2539233/worker-host-dyn.html#tvk5flvk2lj9",
           "violations": [
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'self'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -363,7 +307,120 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
+    },
+    {
+      "name": "survey-nonebare",
+      "variant": "nonebare",
+      "mode": "survey",
+      "outcome": "done",
+      "records": [
+        {
+          "launch": "survey-nonebare",
+          "variant": "nonebare",
+          "mode": "survey",
+          "experiment": "0-hello",
+          "href": "http://127.0.0.1:8731/v/nonebare?mode=survey",
+          "contentType": "text/html",
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://ff8a44bc-292a-4b1f-98fc-88647c0908a1/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://ff8a44bc-292a-4b1f-98fc-88647c0908a1/worker-host-dyn.html"
+        },
+        {
+          "launch": "survey-nonebare",
+          "variant": "nonebare",
+          "mode": "survey",
+          "experiment": "A-blob-worker",
+          "blobUrlCreated": true,
+          "constructed": true,
+          "handshake": false,
+          "blobUrlScheme": "blob:http:/",
+          "syncError": null,
+          "asyncError": {
+            "type": "error",
+            "message": "undefined",
+            "filename": "undefined",
+            "lineno": "undefined"
+          },
+          "violations": [
+            {
+              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
+              "violatedDirective": "img-src",
+              "originalPolicy": "default-src 'none'"
+            },
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "default-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-nonebare",
+          "variant": "nonebare",
+          "mode": "survey",
+          "experiment": "B-extension-iframe",
+          "resource": "worker-host.html",
+          "url": "moz-extension://ff8a44bc-292a-4b1f-98fc-88647c0908a1/worker-host.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://ff8a44bc-292a-4b1f-98fc-88647c0908a1/worker-host.html#t00yveditkik6",
+          "violations": [
+            {
+              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
+              "violatedDirective": "img-src",
+              "originalPolicy": "default-src 'none'"
+            },
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "default-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-nonebare",
+          "variant": "nonebare",
+          "mode": "survey",
+          "experiment": "B2-dynamic-url-iframe",
+          "resource": "worker-host-dyn.html",
+          "url": "moz-extension://ff8a44bc-292a-4b1f-98fc-88647c0908a1/worker-host-dyn.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://ff8a44bc-292a-4b1f-98fc-88647c0908a1/worker-host-dyn.html#ttlod2d5xlrn",
+          "violations": [
+            {
+              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
+              "violatedDirective": "img-src",
+              "originalPolicy": "default-src 'none'"
+            },
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "default-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-nonebare",
+          "variant": "nonebare",
+          "mode": "survey",
+          "experiment": "done"
+        }
+      ],
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "survey-nonesrc",
@@ -378,9 +435,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=survey",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://a3716e76-0819-4a5c-8ace-443716abf0cb/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://a3716e76-0819-4a5c-8ace-443716abf0cb/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://538da6f5-3476-47c6-ae53-4f78777bb0f5/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://538da6f5-3476-47c6-ae53-4f78777bb0f5/worker-host-dyn.html"
         },
         {
           "launch": "survey-nonesrc",
@@ -400,21 +457,6 @@
           },
           "violations": [
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -427,7 +469,7 @@
           "mode": "survey",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://a3716e76-0819-4a5c-8ace-443716abf0cb/worker-host.html",
+          "url": "moz-extension://538da6f5-3476-47c6-ae53-4f78777bb0f5/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -435,23 +477,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://a3716e76-0819-4a5c-8ace-443716abf0cb/worker-host.html#t42mkf94i8gp",
+          "frameHref": "moz-extension://538da6f5-3476-47c6-ae53-4f78777bb0f5/worker-host.html#tyzd13kko16c",
           "violations": [
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -465,7 +492,7 @@
           "mode": "survey",
           "experiment": "B2-dynamic-url-iframe",
           "resource": "worker-host-dyn.html",
-          "url": "moz-extension://a3716e76-0819-4a5c-8ace-443716abf0cb/worker-host-dyn.html",
+          "url": "moz-extension://538da6f5-3476-47c6-ae53-4f78777bb0f5/worker-host-dyn.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -473,23 +500,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://a3716e76-0819-4a5c-8ace-443716abf0cb/worker-host-dyn.html#tcmrmg8yc19g",
+          "frameHref": "moz-extension://538da6f5-3476-47c6-ae53-4f78777bb0f5/worker-host-dyn.html#t4fa1xsutadu",
           "violations": [
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -504,7 +516,299 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
+    },
+    {
+      "name": "survey-workersrc",
+      "variant": "workersrc",
+      "mode": "survey",
+      "outcome": "done",
+      "records": [
+        {
+          "launch": "survey-workersrc",
+          "variant": "workersrc",
+          "mode": "survey",
+          "experiment": "0-hello",
+          "href": "http://127.0.0.1:8731/v/workersrc?mode=survey",
+          "contentType": "text/html",
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://b9c96a46-da18-4707-8397-e3fb03ba9cee/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://b9c96a46-da18-4707-8397-e3fb03ba9cee/worker-host-dyn.html"
+        },
+        {
+          "launch": "survey-workersrc",
+          "variant": "workersrc",
+          "mode": "survey",
+          "experiment": "A-blob-worker",
+          "blobUrlCreated": true,
+          "constructed": true,
+          "handshake": false,
+          "blobUrlScheme": "blob:http:/",
+          "syncError": null,
+          "asyncError": {
+            "type": "error",
+            "message": "undefined",
+            "filename": "undefined",
+            "lineno": "undefined"
+          },
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "worker-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-workersrc",
+          "variant": "workersrc",
+          "mode": "survey",
+          "experiment": "B-extension-iframe",
+          "resource": "worker-host.html",
+          "url": "moz-extension://b9c96a46-da18-4707-8397-e3fb03ba9cee/worker-host.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://b9c96a46-da18-4707-8397-e3fb03ba9cee/worker-host.html#twtsni6nmx8l",
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "worker-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-workersrc",
+          "variant": "workersrc",
+          "mode": "survey",
+          "experiment": "B2-dynamic-url-iframe",
+          "resource": "worker-host-dyn.html",
+          "url": "moz-extension://b9c96a46-da18-4707-8397-e3fb03ba9cee/worker-host-dyn.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://b9c96a46-da18-4707-8397-e3fb03ba9cee/worker-host-dyn.html#tkk8vtt3rbvf",
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "worker-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-workersrc",
+          "variant": "workersrc",
+          "mode": "survey",
+          "experiment": "done"
+        }
+      ],
+      "extraPrefs": [],
+      "isRetry": false
+    },
+    {
+      "name": "survey-childsrc",
+      "variant": "childsrc",
+      "mode": "survey",
+      "outcome": "done",
+      "records": [
+        {
+          "launch": "survey-childsrc",
+          "variant": "childsrc",
+          "mode": "survey",
+          "experiment": "0-hello",
+          "href": "http://127.0.0.1:8731/v/childsrc?mode=survey",
+          "contentType": "text/html",
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://d4b572a4-75fa-479e-9240-529c57dd5e66/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://d4b572a4-75fa-479e-9240-529c57dd5e66/worker-host-dyn.html"
+        },
+        {
+          "launch": "survey-childsrc",
+          "variant": "childsrc",
+          "mode": "survey",
+          "experiment": "A-blob-worker",
+          "blobUrlCreated": true,
+          "constructed": true,
+          "handshake": false,
+          "blobUrlScheme": "blob:http:/",
+          "syncError": null,
+          "asyncError": {
+            "type": "error",
+            "message": "undefined",
+            "filename": "undefined",
+            "lineno": "undefined"
+          },
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "child-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-childsrc",
+          "variant": "childsrc",
+          "mode": "survey",
+          "experiment": "B-extension-iframe",
+          "resource": "worker-host.html",
+          "url": "moz-extension://d4b572a4-75fa-479e-9240-529c57dd5e66/worker-host.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://d4b572a4-75fa-479e-9240-529c57dd5e66/worker-host.html#tc5bfu7mbdup",
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "child-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-childsrc",
+          "variant": "childsrc",
+          "mode": "survey",
+          "experiment": "B2-dynamic-url-iframe",
+          "resource": "worker-host-dyn.html",
+          "url": "moz-extension://d4b572a4-75fa-479e-9240-529c57dd5e66/worker-host-dyn.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://d4b572a4-75fa-479e-9240-529c57dd5e66/worker-host-dyn.html#tu99pljrjxaq",
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "child-src 'none'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-childsrc",
+          "variant": "childsrc",
+          "mode": "survey",
+          "experiment": "done"
+        }
+      ],
+      "extraPrefs": [],
+      "isRetry": false
+    },
+    {
+      "name": "survey-scriptsrc",
+      "variant": "scriptsrc",
+      "mode": "survey",
+      "outcome": "done",
+      "records": [
+        {
+          "launch": "survey-scriptsrc",
+          "variant": "scriptsrc",
+          "mode": "survey",
+          "experiment": "0-hello",
+          "href": "http://127.0.0.1:8731/v/scriptsrc?mode=survey",
+          "contentType": "text/html",
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://4ce61af4-ed6a-4ecb-b0b9-0364b21f7711/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://4ce61af4-ed6a-4ecb-b0b9-0364b21f7711/worker-host-dyn.html"
+        },
+        {
+          "launch": "survey-scriptsrc",
+          "variant": "scriptsrc",
+          "mode": "survey",
+          "experiment": "A-blob-worker",
+          "blobUrlCreated": true,
+          "constructed": true,
+          "handshake": false,
+          "blobUrlScheme": "blob:http:/",
+          "syncError": null,
+          "asyncError": {
+            "type": "error",
+            "message": "undefined",
+            "filename": "undefined",
+            "lineno": "undefined"
+          },
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "script-src 'self'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-scriptsrc",
+          "variant": "scriptsrc",
+          "mode": "survey",
+          "experiment": "B-extension-iframe",
+          "resource": "worker-host.html",
+          "url": "moz-extension://4ce61af4-ed6a-4ecb-b0b9-0364b21f7711/worker-host.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://4ce61af4-ed6a-4ecb-b0b9-0364b21f7711/worker-host.html#t9iz6p2vm24",
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "script-src 'self'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-scriptsrc",
+          "variant": "scriptsrc",
+          "mode": "survey",
+          "experiment": "B2-dynamic-url-iframe",
+          "resource": "worker-host-dyn.html",
+          "url": "moz-extension://4ce61af4-ed6a-4ecb-b0b9-0364b21f7711/worker-host-dyn.html",
+          "frameLoadEvent": true,
+          "frameReady": true,
+          "frameHello": true,
+          "workerConstructed": true,
+          "workerHandshake": true,
+          "workerError": null,
+          "injectError": null,
+          "frameHref": "moz-extension://4ce61af4-ed6a-4ecb-b0b9-0364b21f7711/worker-host-dyn.html#tsmowehqrvqp",
+          "violations": [
+            {
+              "blockedURI": "blob",
+              "violatedDirective": "worker-src",
+              "originalPolicy": "script-src 'self'"
+            }
+          ]
+        },
+        {
+          "launch": "survey-scriptsrc",
+          "variant": "scriptsrc",
+          "mode": "survey",
+          "experiment": "done"
+        }
+      ],
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "survey-json-viewer-on",
@@ -512,7 +816,8 @@
       "mode": "survey",
       "outcome": "timeout",
       "records": [],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "survey-json",
@@ -527,9 +832,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/json?mode=survey",
           "contentType": "application/json",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://9f5f9486-ebdf-4c52-84f8-75a43cc63ce4/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://9f5f9486-ebdf-4c52-84f8-75a43cc63ce4/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://db7b8e61-0d93-4949-a9db-af2a325b3dff/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://db7b8e61-0d93-4949-a9db-af2a325b3dff/worker-host-dyn.html"
         },
         {
           "launch": "survey-json",
@@ -552,11 +857,6 @@
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'self'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'self'"
             }
           ]
         },
@@ -566,7 +866,7 @@
           "mode": "survey",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://9f5f9486-ebdf-4c52-84f8-75a43cc63ce4/worker-host.html",
+          "url": "moz-extension://db7b8e61-0d93-4949-a9db-af2a325b3dff/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -574,13 +874,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://9f5f9486-ebdf-4c52-84f8-75a43cc63ce4/worker-host.html#tqrklb9p9luq",
+          "frameHref": "moz-extension://db7b8e61-0d93-4949-a9db-af2a325b3dff/worker-host.html#t2yzfjc3f0a7",
           "violations": [
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'self'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -594,7 +889,7 @@
           "mode": "survey",
           "experiment": "B2-dynamic-url-iframe",
           "resource": "worker-host-dyn.html",
-          "url": "moz-extension://9f5f9486-ebdf-4c52-84f8-75a43cc63ce4/worker-host-dyn.html",
+          "url": "moz-extension://db7b8e61-0d93-4949-a9db-af2a325b3dff/worker-host-dyn.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -602,13 +897,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://9f5f9486-ebdf-4c52-84f8-75a43cc63ce4/worker-host-dyn.html#tgg762jwd3b",
+          "frameHref": "moz-extension://db7b8e61-0d93-4949-a9db-af2a325b3dff/worker-host-dyn.html#t77au07gk9k3",
           "violations": [
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'self'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -625,7 +915,8 @@
       ],
       "extraPrefs": [
         "devtools.jsonview.enabled=false"
-      ]
+      ],
+      "isRetry": false
     },
     {
       "name": "leak",
@@ -640,9 +931,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=leak",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://e2fc52a0-d4a5-4562-a1c3-1ad80984fe84/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://e2fc52a0-d4a5-4562-a1c3-1ad80984fe84/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://16f2d8c9-2cd3-4ca2-9ad9-b0463f2acb44/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://16f2d8c9-2cd3-4ca2-9ad9-b0463f2acb44/worker-host-dyn.html"
         },
         {
           "launch": "leak",
@@ -667,16 +958,6 @@
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -689,7 +970,7 @@
           "mode": "leak",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://e2fc52a0-d4a5-4562-a1c3-1ad80984fe84/worker-host.html",
+          "url": "moz-extension://16f2d8c9-2cd3-4ca2-9ad9-b0463f2acb44/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -697,21 +978,11 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://e2fc52a0-d4a5-4562-a1c3-1ad80984fe84/worker-host.html#tfeafxysfcj",
+          "frameHref": "moz-extension://16f2d8c9-2cd3-4ca2-9ad9-b0463f2acb44/worker-host.html#tneuju27ag2",
           "violations": [
             {
               "blockedURI": "http://127.0.0.1:8731/favicon.ico",
               "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
@@ -728,17 +999,21 @@
           "experiment": "C-leak",
           "pattern": "(z+)+.{0,24}$",
           "input": "z:30,y:170",
+          "cpuWindowMs": 3500,
+          "terminateAtMs": null,
           "freezeStarted": true,
           "terminateReturnedMs": null,
-          "pingWhileRunning": null,
-          "pingAfterTerminate": null,
+          "pingBeforeTerminate": null,
+          "pingRestOfWindow": null,
           "pingDuringLeak": {
-            "ticks": 208,
+            "ticks": 125,
             "maxGapMs": 31,
-            "windowMs": 6114
+            "windowMs": 3595
           },
           "respawnWorks": null,
-          "freezeFinishedOnItsOwn": true
+          "freezeFinishedOnItsOwn": true,
+          "observedForMs": 9000,
+          "freezeSelfAbortMs": 4984
         },
         {
           "launch": "leak",
@@ -747,7 +1022,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "terminate",
@@ -762,9 +1038,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=terminate",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://4d0435e1-c51d-45bd-a86f-43369d04ffe1/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://4d0435e1-c51d-45bd-a86f-43369d04ffe1/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://2c148153-0832-4ea2-b6d2-d75494006a68/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://2c148153-0832-4ea2-b6d2-d75494006a68/worker-host-dyn.html"
         },
         {
           "launch": "terminate",
@@ -789,16 +1065,6 @@
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -811,7 +1077,7 @@
           "mode": "terminate",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://4d0435e1-c51d-45bd-a86f-43369d04ffe1/worker-host.html",
+          "url": "moz-extension://2c148153-0832-4ea2-b6d2-d75494006a68/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -819,21 +1085,11 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://4d0435e1-c51d-45bd-a86f-43369d04ffe1/worker-host.html#tb4dee6pqbm",
+          "frameHref": "moz-extension://2c148153-0832-4ea2-b6d2-d75494006a68/worker-host.html#twx5iqqh347p",
           "violations": [
             {
               "blockedURI": "http://127.0.0.1:8731/favicon.ico",
               "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
@@ -850,21 +1106,24 @@
           "experiment": "C-terminate",
           "pattern": "(z+)+.{0,24}$",
           "input": "z:30,y:170",
+          "cpuWindowMs": 3500,
+          "terminateAtMs": 500,
           "freezeStarted": true,
           "terminateReturnedMs": 0,
-          "pingWhileRunning": {
-            "ticks": 102,
-            "maxGapMs": 32,
-            "windowMs": 3005
-          },
-          "pingAfterTerminate": {
-            "ticks": 213,
+          "pingBeforeTerminate": {
+            "ticks": 20,
             "maxGapMs": 31,
-            "windowMs": 6098
+            "windowMs": 555
+          },
+          "pingRestOfWindow": {
+            "ticks": 106,
+            "maxGapMs": 31,
+            "windowMs": 3050
           },
           "pingDuringLeak": null,
           "respawnWorks": true,
-          "freezeFinishedOnItsOwn": false
+          "freezeFinishedOnItsOwn": false,
+          "observedForMs": 9000
         },
         {
           "launch": "terminate",
@@ -873,7 +1132,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "soak",
@@ -888,9 +1148,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=soak",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://37cc5b6c-807b-491a-a501-2c0d036e8e92/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://37cc5b6c-807b-491a-a501-2c0d036e8e92/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://4fe83527-1bad-4f8f-ac9d-0f705cc37d30/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://4fe83527-1bad-4f8f-ac9d-0f705cc37d30/worker-host-dyn.html"
         },
         {
           "launch": "soak",
@@ -910,21 +1170,6 @@
           },
           "violations": [
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -937,7 +1182,7 @@
           "mode": "soak",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://37cc5b6c-807b-491a-a501-2c0d036e8e92/worker-host.html",
+          "url": "moz-extension://4fe83527-1bad-4f8f-ac9d-0f705cc37d30/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -945,23 +1190,8 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://37cc5b6c-807b-491a-a501-2c0d036e8e92/worker-host.html#tjyjcys97fsj",
+          "frameHref": "moz-extension://4fe83527-1bad-4f8f-ac9d-0f705cc37d30/worker-host.html#tkxw8n5jla2k",
           "violations": [
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
             {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
@@ -978,7 +1208,7 @@
           "input": "z:30,y:170",
           "freezeStarted": true,
           "finished": true,
-          "workerRegexMs": 5009,
+          "workerRegexMs": 4995,
           "matched": null,
           "threw": {
             "name": "InternalError",
@@ -986,9 +1216,9 @@
           },
           "deadlineMs": 120000,
           "ping": {
-            "ticks": 154,
-            "maxGapMs": 38,
-            "windowMs": 5011
+            "ticks": 176,
+            "maxGapMs": 31,
+            "windowMs": 4995
           }
         },
         {
@@ -998,7 +1228,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "soak-nested-a",
@@ -1013,9 +1244,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=soak&pattern=(a%2B)%2B%24&input=a%3A30%2Cb%3A1",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://91a91a96-6f74-4ddb-884e-a19040caf608/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://91a91a96-6f74-4ddb-884e-a19040caf608/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://21b6bff3-5df6-48e4-bdc0-c3e3bedc472f/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://21b6bff3-5df6-48e4-bdc0-c3e3bedc472f/worker-host-dyn.html"
         },
         {
           "launch": "soak-nested-a",
@@ -1040,16 +1271,6 @@
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -1062,7 +1283,7 @@
           "mode": "soak",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://91a91a96-6f74-4ddb-884e-a19040caf608/worker-host.html",
+          "url": "moz-extension://21b6bff3-5df6-48e4-bdc0-c3e3bedc472f/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -1070,21 +1291,11 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://91a91a96-6f74-4ddb-884e-a19040caf608/worker-host.html#ti53a07dvddh",
+          "frameHref": "moz-extension://21b6bff3-5df6-48e4-bdc0-c3e3bedc472f/worker-host.html#tnui0t3tv31",
           "violations": [
             {
               "blockedURI": "http://127.0.0.1:8731/favicon.ico",
               "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
@@ -1103,7 +1314,7 @@
           "input": "a:30,b:1",
           "freezeStarted": true,
           "finished": true,
-          "workerRegexMs": 4984,
+          "workerRegexMs": 5019,
           "matched": null,
           "threw": {
             "name": "InternalError",
@@ -1111,9 +1322,9 @@
           },
           "deadlineMs": 120000,
           "ping": {
-            "ticks": 151,
-            "maxGapMs": 38,
-            "windowMs": 4985
+            "ticks": 175,
+            "maxGapMs": 31,
+            "windowMs": 5020
           }
         },
         {
@@ -1123,7 +1334,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "busy",
@@ -1138,9 +1350,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=busy",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://d75ba98e-5a45-4246-afc5-c2cbb0af21ae/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://d75ba98e-5a45-4246-afc5-c2cbb0af21ae/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://d4e59475-8127-4226-b2c9-5bd30b4db80e/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://d4e59475-8127-4226-b2c9-5bd30b4db80e/worker-host-dyn.html"
         },
         {
           "launch": "busy",
@@ -1165,16 +1377,6 @@
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -1187,7 +1389,7 @@
           "mode": "busy",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://d75ba98e-5a45-4246-afc5-c2cbb0af21ae/worker-host.html",
+          "url": "moz-extension://d4e59475-8127-4226-b2c9-5bd30b4db80e/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -1195,21 +1397,11 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://d75ba98e-5a45-4246-afc5-c2cbb0af21ae/worker-host.html#tvqfdel0obu",
+          "frameHref": "moz-extension://d4e59475-8127-4226-b2c9-5bd30b4db80e/worker-host.html#tfgx5z9g2it",
           "violations": [
             {
               "blockedURI": "http://127.0.0.1:8731/favicon.ico",
               "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
@@ -1226,15 +1418,15 @@
           "experiment": "D-busy-spin",
           "busyStarted": true,
           "pingWhileRunning": {
-            "ticks": 185,
-            "maxGapMs": 37,
-            "windowMs": 6095
+            "ticks": 214,
+            "maxGapMs": 32,
+            "windowMs": 6099
           },
           "terminateReturnedMs": 0,
           "pingAfterTerminate": {
-            "ticks": 194,
-            "maxGapMs": 36,
-            "windowMs": 6133
+            "ticks": 214,
+            "maxGapMs": 31,
+            "windowMs": 6100
           },
           "respawnWorks": true
         },
@@ -1245,7 +1437,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "soak-prefix-w",
@@ -1260,9 +1453,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/nonesrc?mode=soak&pattern=%5Cw%7B40%7D(%5Cw%2B)%2B!&input=a%3A200",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://73b20962-4afa-4d59-86a7-bb9c59cbdb8e/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://73b20962-4afa-4d59-86a7-bb9c59cbdb8e/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://ea39687c-0d5c-4585-8841-8b4cd6a33868/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://ea39687c-0d5c-4585-8841-8b4cd6a33868/worker-host-dyn.html"
         },
         {
           "launch": "soak-prefix-w",
@@ -1287,16 +1480,6 @@
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
               "blockedURI": "blob",
               "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
@@ -1309,7 +1492,7 @@
           "mode": "soak",
           "experiment": "B-extension-iframe",
           "resource": "worker-host.html",
-          "url": "moz-extension://73b20962-4afa-4d59-86a7-bb9c59cbdb8e/worker-host.html",
+          "url": "moz-extension://ea39687c-0d5c-4585-8841-8b4cd6a33868/worker-host.html",
           "frameLoadEvent": true,
           "frameReady": true,
           "frameHello": true,
@@ -1317,21 +1500,11 @@
           "workerHandshake": true,
           "workerError": null,
           "injectError": null,
-          "frameHref": "moz-extension://73b20962-4afa-4d59-86a7-bb9c59cbdb8e/worker-host.html#tfdjhrtaf0fb",
+          "frameHref": "moz-extension://ea39687c-0d5c-4585-8841-8b4cd6a33868/worker-host.html#tvb08axvbgpd",
           "violations": [
             {
               "blockedURI": "http://127.0.0.1:8731/favicon.ico",
               "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "http://127.0.0.1:8731/favicon.ico",
-              "violatedDirective": "img-src",
-              "originalPolicy": "default-src 'none'; frame-src 'none'"
-            },
-            {
-              "blockedURI": "blob",
-              "violatedDirective": "worker-src",
               "originalPolicy": "default-src 'none'; frame-src 'none'"
             },
             {
@@ -1350,7 +1523,7 @@
           "input": "a:200",
           "freezeStarted": true,
           "finished": true,
-          "workerRegexMs": 4991,
+          "workerRegexMs": 4981,
           "matched": null,
           "threw": {
             "name": "InternalError",
@@ -1358,9 +1531,9 @@
           },
           "deadlineMs": 120000,
           "ping": {
-            "ticks": 150,
-            "maxGapMs": 36,
-            "windowMs": 4992
+            "ticks": 176,
+            "maxGapMs": 34,
+            "windowMs": 4982
           }
         },
         {
@@ -1370,7 +1543,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     },
     {
       "name": "control",
@@ -1385,9 +1559,9 @@
           "experiment": "0-hello",
           "href": "http://127.0.0.1:8731/v/none?mode=control",
           "contentType": "text/html",
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0",
-          "staticResourceUrl": "moz-extension://33fb7f1c-76c2-4cad-a77f-06cf2ea51dda/worker-host.html",
-          "dynamicResourceUrl": "moz-extension://33fb7f1c-76c2-4cad-a77f-06cf2ea51dda/worker-host-dyn.html"
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0",
+          "staticResourceUrl": "moz-extension://8ea54cde-e391-4e02-aec7-c9160694aa60/worker-host.html",
+          "dynamicResourceUrl": "moz-extension://8ea54cde-e391-4e02-aec7-c9160694aa60/worker-host-dyn.html"
         },
         {
           "launch": "control",
@@ -1396,7 +1570,7 @@
           "experiment": "control-main-thread",
           "pattern": "(z+)+.{0,24}$",
           "input": "z:30,y:170",
-          "regexTestMs": 6717,
+          "regexTestMs": 6653,
           "matched": null,
           "threw": {
             "name": "InternalError",
@@ -1404,9 +1578,9 @@
             "constructor": "InternalError"
           },
           "ping": {
-            "ticks": 3,
-            "maxGapMs": 6740,
-            "windowMs": 6812
+            "ticks": 5,
+            "maxGapMs": 6655,
+            "windowMs": 6778
           }
         },
         {
@@ -1416,7 +1590,8 @@
           "experiment": "done"
         }
       ],
-      "extraPrefs": []
+      "extraPrefs": [],
+      "isRetry": false
     }
   ]
 }

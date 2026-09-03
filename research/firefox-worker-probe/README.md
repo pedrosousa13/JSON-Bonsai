@@ -19,13 +19,32 @@ node research/firefox-worker-probe/run.mjs
 It is fully non-interactive: it starts the local server, launches Firefox once
 per measurement through `npx --yes web-ext run`, waits for the probe to report
 itself, kills the browser, and prints a table. It leaves no Firefox process
-behind. Takes about six minutes.
+behind. Takes about fifteen minutes.
+
+**Do not open Firefox while it runs.** Cleanup kills the launch's process group
+first, but Firefox does not reliably stay in that group, so anything left over
+that was not running when the run began is force-killed as a fallback. That pass
+cannot tell a leaked browser from one you just opened. It logs a `[sweep]` line
+whenever it fires.
 
 Environment overrides:
 
 - `PROBE_FIREFOX` — path to the Firefox binary
   (default `/Applications/Firefox Developer Edition.app/Contents/MacOS/firefox`)
 - `PROBE_PORT` — port for the local test server (default `8731`)
+- `PROBE_ONLY` — comma-separated launch names, to re-run just those (for example
+  `PROBE_ONLY=survey-nonebare,terminate`). For debugging one row; the committed
+  results come from a full run.
+
+A launch that times out is retried once, because Firefox occasionally fails to
+start the content script on a cold profile and one flake would otherwise leave a
+"no report" hole that reads like a real browser behaviour. The
+`survey-json-viewer-on` launch is exempt: there, the timeout *is* the finding.
+
+The harness turns Firefox's auto-update off for each launch and re-reads the
+version when the run ends. If the binary changed mid-run it says so and the
+results should not be cited — Developer Edition updates itself, and a run that
+straddles two builds cannot attribute its numbers to either.
 
 `node research/firefox-worker-probe/server.mjs [port]` serves the CSP variants on
 their own, if you want to poke at them by hand.
@@ -42,20 +61,28 @@ their own, if you want to poke at them by hand.
 | `ext/worker-host.html` / `ext/worker-host.js` | The extension-origin iframe. Constructs a same-origin, non-blob worker and relays `postMessage` both ways. |
 | `ext/worker-host-dyn.html` | Same document, declared with `use_dynamic_url: true`, to see whether Firefox honours that. |
 | `ext/tree-worker.js` | The worker under test. Answers a handshake and, on demand, runs the catastrophic-backtracking case. |
-| `ext/config.js` | Generated each run so the background script knows the server port. |
-| `results/` | Per-run JSONL, summary JSON, and the printed console transcript (`run-console.txt`). Each launch's `web-ext` output lands here too as `<launch>.log`, but the repo's root `.gitignore` covers `*.log`, so those stay local. |
+| `ext/config.js` | Generated each run so the background script knows the server port. Not tracked — `run.mjs` writes it, so the extension will not load from `about:debugging` until you have run the harness at least once. |
+| `results/` | Per-run JSONL, summary JSON, the printed console transcript (`run-console.txt`), and each launch's `web-ext` output as `<launch>.log`. The root `.gitignore` covers `*.log`, so those were force-added (`git add -f`) — they are the evidence for launches that produced no HTTP reports at all. |
 
 ## CSP variants
 
-Mirrors exactly the four cases already measured in Chrome on issue #51, so the
-two columns are comparable.
+Covers every policy Chrome was measured against on issue #51, so the two columns
+are comparable.
 
 | path | response |
 | --- | --- |
 | `/v/none` | `text/html`, no CSP |
-| `/v/self` | `text/html`, `Content-Security-Policy: default-src 'self'` |
-| `/v/nonesrc` | `text/html`, `Content-Security-Policy: default-src 'none'; frame-src 'none'` |
-| `/v/json` | `application/json`, `Content-Security-Policy: default-src 'self'` |
+| `/v/self` | `text/html`, `default-src 'self'` |
+| `/v/nonebare` | `text/html`, `default-src 'none'` |
+| `/v/nonesrc` | `text/html`, `default-src 'none'; frame-src 'none'` |
+| `/v/workersrc` | `text/html`, `worker-src 'none'` |
+| `/v/childsrc` | `text/html`, `child-src 'none'` |
+| `/v/scriptsrc` | `text/html`, `script-src 'self'` |
+| `/v/json` | `application/json`, `default-src 'self'` |
+
+All but `nonebare` and `nonesrc` are single directives, on purpose: they are the
+five policies Chrome was measured against on issue #51, plus the two frame cases
+question 1 needs.
 
 ## Experiments
 
@@ -69,9 +96,14 @@ two columns are comparable.
 - **B2 — dynamic-URL iframe.** The same, for a resource declared with
   `use_dynamic_url: true`.
 - **C — termination.** Runs `(z+)+.{0,24}$` against `"z"*30 + "y"*170` in the
-  frame's worker. One launch terminates it mid-run, one deliberately leaves it
-  spinning, and process CPU is sampled over a fixed 6 s window in both. The page
-  main thread is pinged every 25 ms throughout and the maximum gap recorded.
+  frame's worker. One launch terminates it, one leaves it running. Both open their
+  CPU window at the same instant — freeze start — for the same 3500 ms, and the
+  terminating run fires `terminate()` 500 ms in. The window is deliberately
+  shorter than the ~5 s at which SpiderMonkey aborts this pattern by itself, so
+  the self-abort cannot land inside either window and skew the comparison. Both
+  runs then keep watching to 9 s, which is how the leaked worker is seen aborting
+  on its own and the terminated one is seen never finishing. The page main thread
+  is pinged every 25 ms throughout and the maximum gap recorded.
 - **Soak.** The frame's worker runs a pattern to completion or to a two-minute
   deadline, one fresh process per pattern, while the page keeps being pinged.
   Three patterns, all from issue #51: `(z+)+.{0,24}$`, `(a+)+$` and

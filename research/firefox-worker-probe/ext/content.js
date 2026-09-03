@@ -32,16 +32,16 @@ const FREEZE_INPUT = FREEZE_INPUT_SPEC.split(",")
 // plumbing
 // ---------------------------------------------------------------------------
 
+// Listen on document only. The event bubbles to window, so listening on both
+// records every violation twice.
 const violations = [];
-for (const target of [document, window]) {
-  target.addEventListener("securitypolicyviolation", (e) => {
-    violations.push({
-      blockedURI: e.blockedURI,
-      violatedDirective: e.violatedDirective,
-      originalPolicy: e.originalPolicy,
-    });
+document.addEventListener("securitypolicyviolation", (e) => {
+  violations.push({
+    blockedURI: e.blockedURI,
+    violatedDirective: e.violatedDirective,
+    originalPolicy: e.originalPolicy,
   });
-}
+});
 
 function report(rec) {
   return browser.runtime.sendMessage({
@@ -264,18 +264,38 @@ function sendToFrame(entry, cmd, extra = {}) {
 // Experiment C — termination of a frozen worker through the frame relay
 // ---------------------------------------------------------------------------
 
+// The leak and terminate runs must produce a like-for-like CPU pair, so both
+// open their window at the same instant (freeze start) for the same duration.
+//
+// The duration has to sit comfortably below the ~5 s at which SpiderMonkey
+// aborts this pattern on its own, or the self-abort lands inside the window and
+// the two runs stop being comparable: the uninterrupted run would be idle for
+// part of its window while the interrupted one is idle for all of it.
+//
+// So: window opens at freeze start, terminate fires 500 ms in, both windows
+// close 3500 ms in. Uninterrupted, essentially the whole window is regex CPU.
+// Interrupted, it should collapse to roughly the first 500 ms.
+const CPU_WINDOW_MS = 3500;
+const TERMINATE_AT_MS = 500;
+// Keep watching past the window so the leak run can be seen self-aborting and
+// the terminated run can be seen never finishing.
+const OBSERVE_UNTIL_MS = 9000;
+
 async function experimentTerminate(entry, doTerminate) {
   const res = {
     experiment: doTerminate ? "C-terminate" : "C-leak",
     pattern: FREEZE_PATTERN,
     input: FREEZE_INPUT_SPEC,
+    cpuWindowMs: CPU_WINDOW_MS,
+    terminateAtMs: doTerminate ? TERMINATE_AT_MS : null,
     freezeStarted: false,
     terminateReturnedMs: null,
-    pingWhileRunning: null,
-    pingAfterTerminate: null,
+    pingBeforeTerminate: null,
+    pingRestOfWindow: null,
     pingDuringLeak: null,
     respawnWorks: null,
     freezeFinishedOnItsOwn: false,
+    observedForMs: OBSERVE_UNTIL_MS,
   };
 
   const ping = startPing();
@@ -286,30 +306,39 @@ async function experimentTerminate(entry, doTerminate) {
     return res;
   }
 
+  const windowTag = doTerminate ? "regex-terminated" : "regex-running";
+  await phase("cpu-start", { tag: windowTag });
+  const windowOpenedAt = performance.now();
+
   if (doTerminate) {
-    await sleep(3000);
-    res.pingWhileRunning = ping.reset();
+    await sleep(TERMINATE_AT_MS);
+    res.pingBeforeTerminate = ping.reset();
 
     const ack = await withTimeout(sendToFrame(entry, "terminate"), 5000, null);
     res.terminateReturnedMs = ack ? ack.ms : null;
 
-    await phase("cpu-start", { tag: "after-terminate" });
-    await sleep(6000);
-    await phase("cpu-end", { tag: "after-terminate" });
-    res.pingAfterTerminate = ping.reset();
-
-    const respawn = await withTimeout(sendToFrame(entry, "respawn"), 6000, null);
-    res.respawnWorks = respawn ? !!respawn.ok : false;
+    await sleep(Math.max(0, CPU_WINDOW_MS - (performance.now() - windowOpenedAt)));
+    await phase("cpu-end", { tag: windowTag });
+    res.pingRestOfWindow = ping.reset();
   } else {
-    await phase("cpu-start", { tag: "worker-running" });
-    await sleep(6000);
-    await phase("cpu-end", { tag: "worker-running" });
+    await sleep(CPU_WINDOW_MS);
+    await phase("cpu-end", { tag: windowTag });
     res.pingDuringLeak = ping.reset();
   }
 
-  ping.stop();
+  // Both runs now watch for the same length of time. A leaked worker aborts by
+  // itself at around 5 s; a terminated one never reports anything.
+  await sleep(Math.max(0, OBSERVE_UNTIL_MS - (performance.now() - windowOpenedAt)));
   const done = entry.events.find((e) => e.probe === "freeze-done");
   res.freezeFinishedOnItsOwn = !!done;
+  if (done) res.freezeSelfAbortMs = done.ms;
+
+  if (doTerminate) {
+    const respawn = await withTimeout(sendToFrame(entry, "respawn"), 6000, null);
+    res.respawnWorks = respawn ? !!respawn.ok : false;
+  }
+
+  ping.stop();
   return res;
 }
 

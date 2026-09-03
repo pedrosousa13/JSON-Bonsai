@@ -23,10 +23,30 @@ export const VARIANTS = {
     contentType: "text/html; charset=utf-8",
     label: "default-src 'self'",
   },
+  nonebare: {
+    csp: "default-src 'none'",
+    contentType: "text/html; charset=utf-8",
+    label: "default-src 'none'",
+  },
   nonesrc: {
     csp: "default-src 'none'; frame-src 'none'",
     contentType: "text/html; charset=utf-8",
     label: "default-src 'none'; frame-src 'none'",
+  },
+  workersrc: {
+    csp: "worker-src 'none'",
+    contentType: "text/html; charset=utf-8",
+    label: "worker-src 'none'",
+  },
+  childsrc: {
+    csp: "child-src 'none'",
+    contentType: "text/html; charset=utf-8",
+    label: "child-src 'none'",
+  },
+  scriptsrc: {
+    csp: "script-src 'self'",
+    contentType: "text/html; charset=utf-8",
+    label: "script-src 'self'",
   },
   json: {
     csp: "default-src 'self'",
