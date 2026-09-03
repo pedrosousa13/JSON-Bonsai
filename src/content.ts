@@ -303,8 +303,12 @@ async function init(): Promise<void> {
         </div>
       </div>
       <div id="jv-search-panel" hidden>
-        <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false" list="jv-search-history" autocomplete="off">
-        <datalist id="jv-search-history"></datalist>
+        <div id="jv-search-field">
+          <input id="jv-search-input" type="text" placeholder="Search keys, values, paths" aria-label="Search keys, values, paths" spellcheck="false" autocomplete="off">
+          <button id="jv-search-input-clear" class="jv-search-affix" type="button" hidden aria-label="Clear search" title="Clear search">×</button>
+          <button id="jv-search-history-toggle" class="jv-search-affix" type="button" hidden aria-label="Recent searches" title="Recent searches" aria-haspopup="menu" aria-expanded="false" aria-controls="jv-search-history">↺</button>
+          <div id="jv-search-history" role="menu" aria-label="Recent searches" hidden></div>
+        </div>
         <button id="jv-search-regex" type="button" aria-pressed="false" title="Regex search (case-insensitive)">.*</button>
         <span id="jv-search-status"></span>
         <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
@@ -371,12 +375,21 @@ async function init(): Promise<void> {
   const pathCopyBtn = document.getElementById("jv-path-copy")!;
   const pathQueryBtn = document.getElementById("jv-path-query")!;
   const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
-  const searchHistoryList = document.getElementById("jv-search-history")!;
+  const searchField = document.getElementById("jv-search-field")!;
+  const searchInputClearBtn = document.getElementById(
+    "jv-search-input-clear"
+  ) as HTMLButtonElement;
+  const searchHistoryToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+  const searchHistoryMenu = document.getElementById("jv-search-history")!;
   const searchRegexBtn = document.getElementById("jv-search-regex") as HTMLButtonElement;
   const searchStatus = document.getElementById("jv-search-status")!;
   const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
   const searchNextBtn = document.getElementById("jv-search-next") as HTMLButtonElement;
-  const searchClearBtn = document.getElementById("jv-search-clear") as HTMLButtonElement;
+  // Closes the whole search panel — not to be confused with searchInputClearBtn,
+  // which only empties the field. (The DOM id stays #jv-search-clear.)
+  const searchCloseBtn = document.getElementById("jv-search-clear") as HTMLButtonElement;
   // Grabbed early: setView runs before the search wiring below and checks
   // whether the panel is open.
   const searchPanel = document.getElementById("jv-search-panel")!;
@@ -484,7 +497,8 @@ async function init(): Promise<void> {
   // Recent JMESPath queries for this origin, most-recent-first. Seeded from
   // saved prefs; mutated as queries run and pruned to RECENT_QUERY_CAP.
   let recentQueries: string[] = (originPrefs.recentQueries ?? []).slice();
-  // Recent search terms for this origin (native datalist on the search input).
+  // Recent search terms for this origin, feeding the search field's history
+  // popover (most-recent-first).
   let recentSearches: string[] = (originPrefs.recentSearches ?? []).slice();
 
   // Persists the current view and last explicit level pick for this origin.
@@ -777,6 +791,11 @@ async function init(): Promise<void> {
   copyBtn.addEventListener("click", copyJson);
 
   function updateSearchUi() {
+    // The two in-field controls are conditional, so re-derive them from the
+    // live state on every UI refresh (typing, clearing, a view swap, a fresh
+    // tree mount) rather than trusting a caller to remember.
+    updateSearchControls();
+
     // Table search is a row filter, not match-jumping: no prev/next stepping,
     // and the status reads filtered/total rows.
     if (currentView === "table" && tableView !== null) {
@@ -833,17 +852,152 @@ async function init(): Promise<void> {
     updateSearchUi();
   }
 
-  // Mirrors the saved search terms into the input's native <datalist>
-  // (empty while "remember" is off, so history stays hidden).
-  function renderSearchHistory(): void {
-    searchHistoryList.replaceChildren();
-    if (!rememberQuery) return;
-    for (const term of recentSearches) {
-      const option = document.createElement("option");
-      option.value = term;
-      searchHistoryList.appendChild(option);
+  // The search field carries two custom controls in place of Chrome's native
+  // search-cancel button and datalist indicator (10 px, unthemed, keyboard-
+  // unreachable, and absent entirely in Firefox): a clear button while the
+  // field has text, and an opener for the history popover while there is
+  // history to open. Both are plain buttons, so Tab, Enter and Space come free.
+  function updateSearchControls(): void {
+    searchInputClearBtn.hidden = searchInput.value === "";
+    const hasHistory = rememberQuery && recentSearches.length > 0;
+    searchHistoryToggle.hidden = !hasHistory;
+    // History that vanishes under an open popover (the user opted out) takes
+    // the popover with it, or focus would sit on a detached button.
+    if (!hasHistory && searchHistoryOpen()) {
+      // The opener is going away too, so closeSearchHistory has nowhere to
+      // hand focus back to. If focus was still inside the field it is about to
+      // be orphaned onto <body>, so park it on the input; if the user is
+      // somewhere else entirely (the settings checkbox they just clicked),
+      // leave them there.
+      const orphaned = searchField.contains(document.activeElement);
+      closeSearchHistory();
+      if (orphaned) searchInput.focus();
     }
   }
+
+  function searchHistoryOpen(): boolean {
+    return !searchHistoryMenu.hidden;
+  }
+
+  // Escape is layered: an open history popover is the innermost dismissable
+  // thing in the panel, so it absorbs the key before the panel itself does.
+  // The menu's own keydown handler only sees Escape while focus is inside the
+  // menu, and focus is reachable outside it (Shift+Tab lands on the toggle,
+  // then the input, and neither closes the popover) — so both panel-closing
+  // Escape paths have to ask here first. They cannot defer to one another:
+  // the input's handler stops propagation before the document one runs.
+  function escapeClosedSearchHistory(): boolean {
+    if (!searchHistoryOpen()) return false;
+    closeSearchHistory(true);
+    return true;
+  }
+
+  function historyItems(): HTMLButtonElement[] {
+    return Array.from(
+      searchHistoryMenu.querySelectorAll<HTMLButtonElement>(".jv-search-history-item")
+    );
+  }
+
+  // `returnFocus` is for the dismissals the user drove from the keyboard
+  // (Escape); a close that follows focus somewhere else must not yank it back.
+  function closeSearchHistory(returnFocus = false): void {
+    if (searchHistoryMenu.hidden) return;
+    searchHistoryMenu.hidden = true;
+    searchHistoryMenu.replaceChildren();
+    searchHistoryToggle.setAttribute("aria-expanded", "false");
+    if (returnFocus && !searchHistoryToggle.hidden) searchHistoryToggle.focus();
+  }
+
+  // A menu-button popover (the query panel's dropdown is a combobox list the
+  // input owns; this one is opened by a button, so focus moves into it and
+  // Escape hands focus back).
+  function openSearchHistory(): void {
+    if (!rememberQuery || recentSearches.length === 0) return;
+    const header = document.createElement("div");
+    header.className = "jv-search-history-section";
+    // The menu's own aria-label already says "Recent searches"; the heading is
+    // decoration, and a non-menuitem child would only muddle the menu for AT.
+    header.setAttribute("aria-hidden", "true");
+    header.textContent = "Recent searches";
+    searchHistoryMenu.replaceChildren(header);
+
+    for (const term of recentSearches) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "jv-search-history-item";
+      item.setAttribute("role", "menuitem");
+      // Roving focus: the menu is entered as a unit, so items stay out of the
+      // Tab order and the arrows move between them.
+      item.tabIndex = -1;
+      item.textContent = term;
+      item.addEventListener("click", () => applySearchTerm(term));
+      searchHistoryMenu.appendChild(item);
+    }
+
+    searchHistoryMenu.hidden = false;
+    searchHistoryToggle.setAttribute("aria-expanded", "true");
+    historyItems()[0]?.focus();
+  }
+
+  // Picking a term fills the field, runs it, and leaves the caret where the
+  // user can keep editing.
+  function applySearchTerm(term: string): void {
+    searchInput.value = term;
+    closeSearchHistory();
+    updateSearchControls();
+    searchInput.focus();
+    void commitSearch(term);
+  }
+
+  searchHistoryToggle.addEventListener("click", () => {
+    if (searchHistoryOpen()) closeSearchHistory();
+    else openSearchHistory();
+  });
+
+  searchHistoryMenu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      // Only the popover closes: the panel's own Escape handlers sit on the
+      // input and on document, and both would otherwise close the panel too.
+      e.preventDefault();
+      e.stopPropagation();
+      closeSearchHistory(true);
+      return;
+    }
+
+    const items = historyItems();
+    if (items.length === 0) return;
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      const next = index === -1 ? (delta === 1 ? 0 : items.length - 1) : index + delta;
+      items[(next + items.length) % items.length].focus();
+      return;
+    }
+
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      (e.key === "Home" ? items[0] : items[items.length - 1]).focus();
+    }
+  });
+
+  // Tabbing or clicking out of the field dismisses the popover; focus moving
+  // within it (item to item, or back to the opener) leaves it alone.
+  searchField.addEventListener("focusout", (e) => {
+    const next = e.relatedTarget as Node | null;
+    if (next !== null && searchField.contains(next)) return;
+    closeSearchHistory();
+  });
+
+  searchInputClearBtn.addEventListener("click", () => {
+    searchInput.value = "";
+    updateSearchControls();
+    // The empty search is what drops the highlights; commitSearch also kills a
+    // pending debounce so the cleared field cannot be re-searched after it.
+    void commitSearch("");
+    searchInput.focus();
+  });
 
   function pushRecentSearch(query: string): void {
     const term = query.trim();
@@ -852,11 +1006,12 @@ async function init(): Promise<void> {
       0,
       RECENT_QUERY_CAP
     );
-    renderSearchHistory();
+    // First remembered term is what makes the opener appear.
+    updateSearchControls();
     persistOriginPrefs();
   }
 
-  renderSearchHistory();
+  updateSearchControls();
 
   async function commitSearch(query: string) {
     if (searchTimer !== null) {
@@ -868,6 +1023,8 @@ async function init(): Promise<void> {
   }
 
   searchInput.addEventListener("input", () => {
+    // The clear button tracks the field as it is typed, not on the debounce.
+    updateSearchControls();
     if (searchTimer !== null) {
       window.clearTimeout(searchTimer);
     }
@@ -902,12 +1059,14 @@ async function init(): Promise<void> {
     queryPanel.hidden = true;
     closeSettingsMenu();
     searchPanel.hidden = false;
+    updateSearchControls();
     searchInput.focus();
     searchInput.select();
   }
 
   function closeSearchPanel(): void {
     searchPanel.hidden = true;
+    closeSearchHistory();
     searchRegexError = false;
     if (searchTimer !== null) {
       window.clearTimeout(searchTimer);
@@ -948,12 +1107,9 @@ async function init(): Promise<void> {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      if (escapeClosedSearchHistory()) return;
       closeSearchPanel();
     }
-  });
-
-  searchInput.addEventListener("search", () => {
-    void commitSearch(searchInput.value);
   });
 
   searchRegexBtn.addEventListener("click", () => {
@@ -973,7 +1129,7 @@ async function init(): Promise<void> {
     void treeView.stepSearch(1).then(updateSearchUi);
   });
 
-  searchClearBtn.addEventListener("click", () => {
+  searchCloseBtn.addEventListener("click", () => {
     closeSearchPanel();
   });
 
@@ -1004,6 +1160,7 @@ async function init(): Promise<void> {
 
     if (e.key === "Escape" && !searchPanel.hidden) {
       e.preventDefault();
+      if (escapeClosedSearchHistory()) return;
       closeSearchPanel();
       return;
     }
@@ -1401,7 +1558,7 @@ async function init(): Promise<void> {
   rememberQueryCheck.addEventListener("change", () => {
     rememberQuery = rememberQueryCheck.checked;
     void storageSet(REMEMBER_QUERY_KEY, rememberQuery ? "1" : "0");
-    renderSearchHistory();
+    updateSearchControls();
     // Persist now so toggling on saves the current query and toggling off
     // drops it immediately.
     persistOriginPrefs();

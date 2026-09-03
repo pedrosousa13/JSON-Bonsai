@@ -896,10 +896,14 @@ test("committing a search saves history by default and respects the opt-out", as
   await new Promise((resolve) => setTimeout(resolve, 150));
 
   const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
-  const datalist = document.getElementById("jv-search-history")!;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
   const check = document.getElementById("jv-remember-query") as HTMLInputElement;
   document.getElementById("jv-search-toggle")!.click();
   expect(check.checked).toBe(true);
+  // No history yet, so the opener stays out of the way.
+  expect(historyToggle.hidden).toBe(true);
 
   // Enter commits the search and default-on history stores it.
   searchInput.value = "alpha";
@@ -908,22 +912,25 @@ test("committing a search saves history by default and respects the opt-out", as
   );
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  const opts = Array.from(datalist.querySelectorAll("option")).map((o) => o.value);
-  expect(opts).toContain("alpha");
+  expect(historyToggle.hidden).toBe(false);
+  historyToggle.click();
+  expect(historyTerms()).toContain("alpha");
+  historyToggle.click();
   expect(
     (store.get(`jv-prefs:${location.origin}`) as { recentSearches?: string[] }).recentSearches
   ).toContain("alpha");
 
-  // Once the user opts out, committed searches stop landing in storage.
+  // Once the user opts out, committed searches stop landing in storage and the
+  // opener disappears with the history it would have shown.
   check.click();
+  expect(historyToggle.hidden).toBe(true);
   searchInput.value = "beta";
   searchInput.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
   );
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  const optedOutOpts = Array.from(datalist.querySelectorAll("option")).map((o) => o.value);
-  expect(optedOutOpts).not.toContain("beta");
+  expect(historyToggle.hidden).toBe(true);
   expect(store.get("jv-remember-query")).toBe("0");
   expect(
     (store.get(`jv-prefs:${location.origin}`) as { recentSearches?: string[] } | undefined)
@@ -931,21 +938,220 @@ test("committing a search saves history by default and respects the opt-out", as
   ).toBeUndefined();
 });
 
-test("a remembered search history populates the datalist on load", async () => {
+// The rendered terms of the search-history popover, in order.
+function historyTerms(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("#jv-search-history .jv-search-history-item")
+  ).map((el) => el.textContent!);
+}
+
+test("the search input carries no native clear or datalist controls", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  // type="search" is what draws Chrome's unthemed cancel button, and `list`
+  // its datalist indicator; neither is reachable by keyboard.
+  expect(searchInput.getAttribute("type")).toBe("text");
+  expect(searchInput.hasAttribute("list")).toBe(false);
+  expect(document.querySelector("datalist")).toBeNull();
+});
+
+test("the clear button appears with text, clears the search and refocuses", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ alpha: 1, beta: 2 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const clearInput = document.getElementById(
+    "jv-search-input-clear"
+  ) as HTMLButtonElement;
+
+  expect(clearInput.getAttribute("aria-label")).toBe("Clear search");
+  expect(clearInput.hidden).toBe(true);
+
+  searchInput.value = "alpha";
+  searchInput.dispatchEvent(new Event("input"));
+  expect(clearInput.hidden).toBe(false);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(
+    document.querySelectorAll("#jv-tree .jv-search-match").length
+  ).toBeGreaterThan(0);
+
+  clearInput.click();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  expect(searchInput.value).toBe("");
+  expect(clearInput.hidden).toBe(true);
+  expect(document.querySelectorAll("#jv-tree .jv-search-match").length).toBe(0);
+  expect(document.activeElement).toBe(searchInput);
+  // Clearing the field must not take the panel down with it.
+  expect(document.getElementById("jv-search-panel")!.hidden).toBe(false);
+});
+
+test("a remembered search history feeds the popover, newest first", async () => {
   vi.resetModules();
   statefulChrome({
     "jv-remember-query": "1",
     [`jv-prefs:${location.origin}`]: { recentSearches: ["foo", "bar"] },
   });
 
-  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  document.body.innerHTML = `<pre>${JSON.stringify({ foo: 1, bar: 2 })}</pre>`;
   await import("./content");
   await new Promise((resolve) => setTimeout(resolve, 150));
 
-  const opts = Array.from(
-    document.getElementById("jv-search-history")!.querySelectorAll("option")
-  ).map((o) => o.value);
-  expect(opts).toEqual(["foo", "bar"]);
+  document.getElementById("jv-search-toggle")!.click();
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const popover = document.getElementById("jv-search-history")!;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+
+  expect(historyToggle.hidden).toBe(false);
+  expect(historyToggle.getAttribute("aria-label")).toBe("Recent searches");
+  expect(historyToggle.getAttribute("aria-expanded")).toBe("false");
+  expect(popover.hidden).toBe(true);
+
+  historyToggle.click();
+  expect(popover.hidden).toBe(false);
+  expect(historyToggle.getAttribute("aria-expanded")).toBe("true");
+  expect(historyTerms()).toEqual(["foo", "bar"]);
+  // Focus lands in the popover so the arrows have somewhere to move from.
+  const items = document.querySelectorAll<HTMLElement>(".jv-search-history-item");
+  expect(document.activeElement).toBe(items[0]);
+
+  // ArrowDown walks to the second term; Enter picks it and runs the search.
+  items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  expect(document.activeElement).toBe(items[1]);
+  items[1].click();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  expect(searchInput.value).toBe("bar");
+  expect(popover.hidden).toBe(true);
+  expect(document.activeElement).toBe(searchInput);
+  expect(
+    document.querySelectorAll("#jv-tree .jv-search-match").length
+  ).toBeGreaterThan(0);
+});
+
+test("Escape in the history popover closes only the popover", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentSearches: ["foo"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ foo: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const panel = document.getElementById("jv-search-panel")!;
+  const popover = document.getElementById("jv-search-history")!;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+
+  historyToggle.click();
+  expect(popover.hidden).toBe(false);
+
+  const item = document.querySelector<HTMLElement>(".jv-search-history-item")!;
+  item.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+  expect(popover.hidden).toBe(true);
+  expect(panel.hidden).toBe(false);
+  expect(document.activeElement).toBe(historyToggle);
+
+  // A second Escape — now with no popover in the way — closes the panel.
+  historyToggle.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
+  expect(panel.hidden).toBe(true);
+});
+
+test("Escape closes only the popover when focus has left the menu", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentSearches: ["foo"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ foo: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const panel = document.getElementById("jv-search-panel")!;
+  const popover = document.getElementById("jv-search-history")!;
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+
+  // Items are tabIndex=-1, so Shift+Tab out of the open menu lands on the
+  // toggle and then the input, both of which keep the popover open.
+  historyToggle.click();
+  historyToggle.focus();
+  expect(popover.hidden).toBe(false);
+
+  historyToggle.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
+
+  expect(popover.hidden).toBe(true);
+  expect(panel.hidden).toBe(false);
+  expect(document.activeElement).toBe(historyToggle);
+
+  // Same again, one stop further out: focus on the input itself.
+  historyToggle.click();
+  searchInput.focus();
+  expect(popover.hidden).toBe(false);
+
+  searchInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+  );
+
+  expect(popover.hidden).toBe(true);
+  expect(panel.hidden).toBe(false);
+  expect(document.activeElement).toBe(historyToggle);
+});
+
+test("history vanishing under an open popover parks focus on the search input", async () => {
+  vi.resetModules();
+  statefulChrome({
+    "jv-remember-query": "1",
+    [`jv-prefs:${location.origin}`]: { recentSearches: ["foo"] },
+  });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ foo: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const popover = document.getElementById("jv-search-history")!;
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const historyToggle = document.getElementById(
+    "jv-search-history-toggle"
+  ) as HTMLButtonElement;
+
+  historyToggle.click();
+  expect(popover.hidden).toBe(false);
+
+  // Opting out of remembering drops the history, which takes the popover and
+  // its opener with it while focus is still on a menu item.
+  (document.getElementById("jv-remember-query") as HTMLInputElement).click();
+
+  expect(popover.hidden).toBe(true);
+  expect(historyToggle.hidden).toBe(true);
+  expect(document.activeElement).toBe(searchInput);
 });
 
 test("only one popup is open at a time across search, query, and settings", async () => {
