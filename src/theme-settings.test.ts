@@ -6,7 +6,17 @@ import {
   loadThemeState,
   type SettingsStorage,
 } from "./theme-settings";
-import { BUILTIN_SCHEMES, DEFAULT_THEME_ID } from "./themes";
+import {
+  BUILTIN_SCHEMES,
+  DEFAULT_DARK_ID,
+  DEFAULT_LIGHT_ID,
+  DEFAULT_THEME_ID,
+} from "./themes";
+
+// jsdom ships no matchMedia, and the fresh-profile default reads it.
+function stubPrefersLight(matches: boolean): void {
+  window.matchMedia = vi.fn(() => ({ matches })) as unknown as typeof window.matchMedia;
+}
 
 const PALETTE_KEYS = [
   "base00", "base01", "base02", "base03", "base04", "base05", "base06", "base07",
@@ -22,22 +32,13 @@ function fakeStorage(initial: Record<string, string> = {}): {
   return {
     store,
     storage: {
-      async get(query) {
+      async get(keys) {
         const out: Record<string, unknown> = {};
-        if (Array.isArray(query)) {
-          for (const key of query) if (store.has(key)) out[key] = store.get(key);
-        } else {
-          for (const [key, fallback] of Object.entries(query)) {
-            out[key] = store.has(key) ? store.get(key) : fallback;
-          }
-        }
+        for (const key of keys) if (store.has(key)) out[key] = store.get(key);
         return out;
       },
       async set(items) {
         for (const [key, value] of Object.entries(items)) store.set(key, value);
-      },
-      async remove(keys) {
-        for (const key of keys) store.delete(key);
       },
     },
   };
@@ -85,22 +86,29 @@ test("loadThemeState reads a stored id and custom schemes", async () => {
   expect(state.customs.map((s) => s.id)).toEqual(["mine"]);
 });
 
-test("loadThemeState migrates the legacy mode/dark/light keys and clears them", async () => {
-  const { storage, store } = fakeStorage({
-    "jv-theme-mode": "dark",
-    "jv-theme-dark": "nord",
-    "jv-theme-light": "github-light",
-    "jv-custom-cursor": "1",
-  });
+test("loadThemeState takes a fresh profile's theme from the OS, writing nothing", async () => {
+  for (const [prefersLight, expected] of [
+    [true, DEFAULT_LIGHT_ID],
+    [false, DEFAULT_DARK_ID],
+  ] as const) {
+    stubPrefersLight(prefersLight);
+    const { storage, store } = fakeStorage();
 
-  const state = await loadThemeState(storage);
+    const state = await loadThemeState(storage);
 
-  expect(state.themeId).toBe("nord");
-  expect(store.get("jv-theme-id")).toBe("nord");
-  expect(store.has("jv-theme-mode")).toBe(false);
-  expect(store.has("jv-theme-dark")).toBe(false);
-  expect(store.has("jv-theme-light")).toBe(false);
-  expect(store.has("jv-custom-cursor")).toBe(false);
+    expect(state.themeId).toBe(expected);
+    expect(state.customs).toEqual([]);
+    expect(store.size).toBe(0);
+  }
+});
+
+test("loadThemeState reads storage exactly once", async () => {
+  const { storage } = fakeStorage({ "jv-theme-id": "nord" });
+  const get = vi.spyOn(storage, "get");
+
+  await loadThemeState(storage);
+
+  expect(get).toHaveBeenCalledTimes(1);
 });
 
 test("loadThemeState falls back to no customs when the stored list is corrupt", async () => {

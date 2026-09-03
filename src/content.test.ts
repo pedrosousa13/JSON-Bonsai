@@ -274,57 +274,6 @@ test("theme picker is a single grouped select with no mode toggle", async () => 
   expect(select.value).toBe(DEFAULT_THEME_ID);
 });
 
-test("migrates legacy mode/dark/light keys to a single jv-theme-id", async () => {
-  vi.resetModules();
-  const store: Record<string, unknown> = {
-    "jv-theme-mode": "dark",
-    "jv-theme-dark": "nord",
-    "jv-theme-light": "github-light",
-  };
-  (globalThis as any).chrome = {
-    storage: {
-      local: {
-        get: vi.fn(async (q: any) => {
-          if (Array.isArray(q)) {
-            const out: Record<string, unknown> = {};
-            for (const k of q) if (k in store) out[k] = store[k];
-            return out;
-          }
-          if (q && typeof q === "object") {
-            const out: Record<string, unknown> = { ...q };
-            for (const k of Object.keys(q)) if (k in store) out[k] = store[k];
-            return out;
-          }
-          return {};
-        }),
-        set: vi.fn(async (items: Record<string, unknown>) => {
-          Object.assign(store, items);
-        }),
-        remove: vi.fn(async (keys: string | string[]) => {
-          for (const k of ([] as string[]).concat(keys)) delete store[k];
-        }),
-      },
-    },
-    runtime: { getURL: (path: string) => `chrome-extension://test/${path}` },
-  };
-  window.matchMedia = vi.fn(() => ({
-    matches: false,
-    addEventListener: vi.fn(),
-  })) as unknown as typeof window.matchMedia;
-
-  document.body.innerHTML = `<pre>{"a":1}</pre>`;
-  await import("./content");
-  await new Promise((resolve) => setTimeout(resolve, 150));
-
-  expect(store["jv-theme-id"]).toBe("nord");
-  expect("jv-theme-mode" in store).toBe(false);
-  expect("jv-theme-dark" in store).toBe(false);
-  expect("jv-theme-light" in store).toBe(false);
-
-  const select = document.getElementById("jv-theme-select") as HTMLSelectElement;
-  expect(select.value).toBe("nord");
-});
-
 test("search Close button closes the panel with an empty query", async () => {
   vi.resetModules();
   (globalThis as any).chrome = {
