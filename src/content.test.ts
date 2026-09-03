@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { DEFAULT_LIGHT_ID, DEFAULT_THEME_ID } from "./themes";
+import { parseWithExactNumbers } from "./lossless-numbers";
+
+// Reviver source access needs V8 11.4+ (Node 21+, Chrome 114+) and re-emitting
+// a preserved token needs JSON.rawJSON; below either, the viewer falls back to
+// today's lossy behavior, so the exact-number tests are guarded.
+const hasReviverSource = parseWithExactNumbers("{}").exactNumbers !== null;
+const hasRawJSON =
+  typeof (JSON as { rawJSON?: unknown }).rawJSON === "function";
 
 // Spy on collectKeyUniverse through the module so the lazy-build guard can
 // observe when (and how often) content.ts builds the key universe. The rest
@@ -1174,6 +1182,66 @@ test("an explicit NDJSON Content-Type still renders scalar lines as an array", a
     document.querySelector('[data-path="data[1]"] .jv-number')?.textContent
   ).toBe("2");
 });
+
+test.runIf(hasReviverSource)(
+  "an NDJSON Content-Type keeps a bare number line and an object line exact",
+  async () => {
+    vi.resetModules();
+    stubChrome();
+    setContentType("application/x-ndjson");
+
+    resetDocumentWithBody(
+      '<pre>9007199254740993\n{"id": 9007199254740993}</pre>'
+    );
+
+    await import("./content");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // The bare line and the object line both render the source token, and both
+    // carry the exact marker the viewer styles.
+    const bare = document.querySelector<HTMLElement>(
+      '[data-path="data[0]"] .jv-number'
+    )!;
+    const nested = document.querySelector<HTMLElement>(
+      '[data-path="data[1].id"] .jv-number'
+    )!;
+    expect(bare.textContent).toBe("9007199254740993");
+    expect(bare.classList.contains("jv-number-exact")).toBe(true);
+    expect(nested.textContent).toBe("9007199254740993");
+    expect(nested.classList.contains("jv-number-exact")).toBe(true);
+  }
+);
+
+test.runIf(hasReviverSource && hasRawJSON)(
+  "Copy JSON of an NDJSON document emits both big numbers exactly",
+  async () => {
+    vi.resetModules();
+    stubChrome();
+    setContentType("application/x-ndjson");
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    // jsdom has no clipboard of its own, so uncover undefined again rather
+    // than leave a stub behind for whichever test runs next.
+    onTestFinished(() => {
+      delete (window.navigator as any).clipboard;
+    });
+
+    resetDocumentWithBody(
+      '<pre>9007199254740993\n{"id": 9007199254740993}</pre>'
+    );
+
+    await import("./content");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    document.getElementById("jv-copy")!.click();
+    expect(writeText).toHaveBeenLastCalledWith(
+      '[\n  9007199254740993,\n  {\n    "id": 9007199254740993\n  }\n]'
+    );
+  }
+);
 
 test("leaves an authored text/html page with a populated head untouched", async () => {
   vi.resetModules();
