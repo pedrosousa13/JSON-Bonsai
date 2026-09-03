@@ -165,6 +165,55 @@ describe("inferSchema", () => {
     });
   });
 
+  test("keeps a __proto__ key as an ordinary property", () => {
+    const schema = inferSchema(JSON.parse('{"__proto__":{"a":1},"x":2}')) as {
+      properties: Record<string, object>;
+      required: string[];
+    };
+
+    // Read it as an own property: a plain `.__proto__` access would follow the
+    // prototype setter instead of the key we care about.
+    expect(Object.getOwnPropertyDescriptor(schema.properties, "__proto__")?.value).toEqual({
+      type: "object",
+      properties: { a: { type: "number" } },
+      required: ["a"],
+    });
+    expect(schema.required).toEqual(["__proto__", "x"]);
+  });
+
+  test("marks a __proto__ key optional when only one object variant has it", () => {
+    const schema = inferSchema(JSON.parse('[{"__proto__":{"a":1}},{"x":2}]')) as {
+      items: { properties: Record<string, object>; required: string[] };
+    };
+
+    expect(Object.getOwnPropertyDescriptor(schema.items.properties, "__proto__")?.value).toEqual({
+      type: "object",
+      properties: { a: { type: "number" } },
+      required: ["a"],
+    });
+    expect(schema.items.required).toEqual([]);
+  });
+
+  test("merges a __proto__ key carried by the second object shape", () => {
+    const schema = inferSchema(JSON.parse('[{"x":2},{"__proto__":{"a":1}}]')) as {
+      items: { properties: Record<string, object>; required: string[] };
+    };
+
+    expect(Object.getOwnPropertyDescriptor(schema.items.properties, "__proto__")?.value).toEqual({
+      type: "object",
+      properties: { a: { type: "number" } },
+      required: ["a"],
+    });
+    expect(schema.items.required).toEqual([]);
+  });
+
+  test("leaves Object.prototype untouched when a __proto__ key is inferred", () => {
+    inferSchema(JSON.parse('{"__proto__":{"sentinel":1}}'));
+
+    expect(Object.getOwnPropertyDescriptor(Object.prototype, "sentinel")).toBeUndefined();
+    expect(({} as Record<string, unknown>).sentinel).toBeUndefined();
+  });
+
   test("merging an empty array with a populated one keeps the untyped items variant", () => {
     // An empty array infers `items: {}` ("anything"), so merging it with a
     // typed array yields `anyOf: [{}, ...]`. Pinned as-is, not endorsed.
@@ -187,5 +236,21 @@ describe("toJsonSchema", () => {
       properties: { id: { type: "number" } },
       required: ["id"],
     });
+  });
+
+  test("serializes a __proto__ key as an ordinary property name", () => {
+    const json = toJsonSchema(JSON.parse('{"__proto__":{"a":1}}'));
+
+    expect(json).toContain('"__proto__"');
+    const parsed = JSON.parse(json) as {
+      properties: Record<string, object>;
+      required: string[];
+    };
+    expect(Object.getOwnPropertyDescriptor(parsed.properties, "__proto__")?.value).toEqual({
+      type: "object",
+      properties: { a: { type: "number" } },
+      required: ["a"],
+    });
+    expect(parsed.required).toEqual(["__proto__"]);
   });
 });
