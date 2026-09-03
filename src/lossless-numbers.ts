@@ -17,10 +17,12 @@ type SourceReviver = (
   value: unknown,
   context?: ReviverContext
 ) => unknown;
-const parseWithSource = JSON.parse as (
-  text: string,
-  reviver?: SourceReviver
-) => JsonValue;
+function parseWithSource(text: string, reviver?: SourceReviver): JsonValue {
+  return (JSON.parse as (t: string, r?: SourceReviver) => JsonValue)(
+    text,
+    reviver
+  );
+}
 const rawJSON = (JSON as { rawJSON?: (text: string) => unknown }).rawJSON;
 
 let reviverSourceSupport: boolean | null = null;
@@ -68,6 +70,60 @@ function canonicalNumber(text: string): string {
 export function numberLosesPrecision(source: string, value: number): boolean {
   if (!Number.isFinite(value)) return true;
   return canonicalNumber(source) !== canonicalNumber(String(value));
+}
+
+// A double reproduces any decimal of 15 significant digits or fewer exactly
+// (that is what DBL_DIG = 15 means), so a token can only lose something if it
+// carries 16 significant digits or more, overflows to Infinity, underflows to
+// zero, or is -0 — whose sign JSON.stringify drops. All four are visible in
+// the raw text, which is far cheaper to look at than it is to parse the
+// document twice:
+//
+//   [eE][+-]?\d{3,}    an exponent of 100 or more, the only way a mantissa
+//                      short enough to pass the other rules can still leave
+//                      the range of a double. 15 digits shifted 99 places is
+//                      1e114, nowhere near the limits.
+//   -0+(?:\.0*)?       negative zero. The lookahead keeps "-0.5" and "-0.05"
+//                      out — only an all-zero mantissa is -0 — and the
+//                      lookbehind keeps out the "-0" that ends a string, since
+//                      a real number token only ever follows [ , : or space.
+//                      Leading zeros are illegal in JSON, but the scan runs
+//                      before anything has validated the text, so "-000.0"
+//                      has to count too.
+//   \.\d{8} and        16 digits or more straddling a decimal point. Split at
+//   (?<=\d{8})\.       the dot: if both sides held 7 digits or fewer the token
+//                      could not reach 16, so one side must reach 8. Anchoring
+//                      both halves on the dot matters — dots are rare, and a
+//                      rule the engine can only try at every digit costs
+//                      several times more.
+//   (?<!\d)\d{16}      16 digits or more with no decimal point at all. The
+//                      lookbehind starts the attempt at the front of a digit
+//                      run instead of inside it.
+//
+// Both halves of the straddle rule are wider than the exact condition (they
+// flag "1234567890.12345678", which is fine), and the scan is deliberately
+// blind to string literals, so a 20-digit order id inside a string trips it
+// and the document takes the slow path for nothing. Tokenizing strings to
+// avoid that would cost more than it saves. Being wrong that way is the only
+// direction allowed: a false positive costs parse time, while a false negative
+// would parse a lossy token plainly and corrupt it in silence.
+//
+// Kept as separate patterns rather than one alternation on purpose. V8 runs
+// each of these several times faster than the single regex that ORs them
+// together, because an alternation gives up the "skip ahead to the next
+// character that could start a match" optimization.
+const LOSSY_NUMBER_SHAPES = [
+  /[eE][+-]?\d{3,}/,
+  /(?<![^\s,:[])-0+(?:\.0*)?(?![.\d])/,
+  /\.\d{8}|(?<=\d{8})\./,
+  /(?<!\d)\d{16}/,
+];
+
+// True when `raw` might contain a number token that JSON.parse cannot
+// represent exactly — see LOSSY_NUMBER_SHAPES for what "might" covers. The
+// patterns run cheapest first so a document that does hold one stops early.
+export function mayContainLossyNumbers(raw: string): boolean {
+  return LOSSY_NUMBER_SHAPES.some((shape) => shape.test(raw));
 }
 
 // Where a lossy *root-level* number should be recorded. The holder the reviver
@@ -137,6 +193,16 @@ export function parseWithExactNumbers(raw: string): {
 } {
   if (!supportsReviverSource()) {
     return { data: JSON.parse(raw) as JsonValue, exactNumbers: null };
+  }
+
+  // Handing JSON.parse a reviver switches the engine off its fast parser —
+  // measured at ~7x on a 16 MB document. When the text holds nothing that can
+  // lose precision there is nothing for the reviver to record, so pay the
+  // scan (one linear pass) instead. The map comes back empty rather than null,
+  // because null means "this engine cannot do exact numbers at all" and
+  // callers branch on it.
+  if (!mayContainLossyNumbers(raw)) {
+    return { data: JSON.parse(raw) as JsonValue, exactNumbers: new WeakMap() };
   }
 
   const exactNumbers: ExactNumberMap = new WeakMap();

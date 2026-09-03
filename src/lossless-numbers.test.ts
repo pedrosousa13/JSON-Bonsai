@@ -1,6 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
+  mayContainLossyNumbers,
   numberLosesPrecision,
   parseIntoExactNumbers,
   parseWithExactNumbers,
@@ -14,6 +15,10 @@ import {
 const hasReviverSource = parseWithExactNumbers("{}").exactNumbers !== null;
 const hasRawJSON =
   typeof (JSON as { rawJSON?: unknown }).rawJSON === "function";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("numberLosesPrecision", () => {
   test("flags integers beyond the IEEE-754 safe range", () => {
@@ -50,6 +55,96 @@ describe("numberLosesPrecision", () => {
   });
 });
 
+describe("mayContainLossyNumbers", () => {
+  test("clears a document whose numbers all fit a double", () => {
+    expect(
+      mayContainLossyNumbers('{"a": [1, 2.5, -3, 1e3, 0.1], "b": null}')
+    ).toBe(false);
+  });
+
+  test("flags an integer of 16 or more digits", () => {
+    expect(mayContainLossyNumbers('{"id": 9007199254740993}')).toBe(true);
+    expect(mayContainLossyNumbers('{"id": 900719925474099}')).toBe(false);
+  });
+
+  test("flags precision that straddles the decimal point", () => {
+    // 18 significant digits, but no run of 16 on either side of the dot.
+    expect(mayContainLossyNumbers("[1234567.89012345678]")).toBe(true);
+  });
+
+  test("flags -0 without flagging negative numbers that merely start with 0", () => {
+    expect(mayContainLossyNumbers('{"a": -0}')).toBe(true);
+    expect(mayContainLossyNumbers('{"a": -0.0}')).toBe(true);
+    expect(mayContainLossyNumbers('{"a": -0.5}')).toBe(false);
+    expect(mayContainLossyNumbers('{"a": -0.05}')).toBe(false);
+  });
+
+  test("flags -0 in every position a number can legally sit", () => {
+    // The rule looks at the character before the minus, so each of these has
+    // to be pinned: nothing may slip through because of its surroundings.
+    for (const raw of ['{"a":-0}', '{"a": -0}', "[-0]", "[1,-0]", "-0", '{"a":1}\n-0']) {
+      expect(mayContainLossyNumbers(raw)).toBe(true);
+    }
+  });
+
+  test("clears a -0 that is only the tail of a string", () => {
+    // "batch-0" is not a number, and letting it through would put every
+    // document with an id like that on the slow path.
+    expect(mayContainLossyNumbers('{"name": "batch-0"}')).toBe(false);
+  });
+
+  test("flags exponents large enough to overflow or flush to zero", () => {
+    expect(mayContainLossyNumbers("[1e999]")).toBe(true);
+    expect(mayContainLossyNumbers("[1e-999]")).toBe(true);
+    expect(mayContainLossyNumbers("[1e99]")).toBe(false);
+  });
+
+  test("flags digit runs inside string literals — the harmless direction", () => {
+    // The scan does not tokenize, so an order id in a string trips it. That
+    // costs a slower parse and nothing else.
+    expect(mayContainLossyNumbers('{"order": "12345678901234567890"}')).toBe(
+      true
+    );
+  });
+
+  test("never clears a token that numberLosesPrecision would flag", () => {
+    // A false positive costs parse time; a false negative parses a lossy token
+    // plainly and corrupts it silently. Sweep every token shape the parser can
+    // meet and pin that direction.
+    const mantissas: string[] = [];
+    for (let len = 1; len <= 22; len += 1) {
+      mantissas.push("9".repeat(len));
+      mantissas.push("1" + "0".repeat(len - 1));
+      mantissas.push("0".repeat(len));
+      mantissas.push("1234567890".repeat(3).slice(0, len));
+      mantissas.push("1" + "0".repeat(len - 1) + "1");
+    }
+
+    const tokens = new Set<string>();
+    for (const digits of mantissas) {
+      for (let split = 0; split <= digits.length; split += 1) {
+        const body =
+          split === 0
+            ? `0.${digits}`
+            : split === digits.length
+              ? digits
+              : `${digits.slice(0, split)}.${digits.slice(split)}`;
+        for (const exp of ["", "e5", "e-5", "e99", "e-99", "e300", "e-300", "e999"]) {
+          tokens.add(`${body}${exp}`);
+          tokens.add(`-${body}${exp}`);
+        }
+      }
+    }
+
+    const missed = [...tokens].filter(
+      (token) =>
+        numberLosesPrecision(token, Number(token)) &&
+        !mayContainLossyNumbers(token)
+    );
+    expect(missed).toEqual([]);
+  });
+});
+
 describe("parseWithExactNumbers", () => {
   test.runIf(hasReviverSource)(
     "records exact source text keyed by holder and key",
@@ -70,6 +165,61 @@ describe("parseWithExactNumbers", () => {
 
   test("parses plain values identically to JSON.parse", () => {
     const raw = '{"a": [1, 2.5, "x"], "b": null}';
+    expect(parseWithExactNumbers(raw).data).toEqual(JSON.parse(raw));
+  });
+
+  test.runIf(hasReviverSource)(
+    "parses a document with no lossy token without a reviver",
+    () => {
+      const spy = vi.spyOn(JSON, "parse");
+      parseWithExactNumbers('{"a": [1, 2.5, "x"], "b": null}');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][1]).toBeUndefined();
+    }
+  );
+
+  test.runIf(hasReviverSource)(
+    "still reaches for the reviver when a token can lose precision",
+    () => {
+      const spy = vi.spyOn(JSON, "parse");
+      parseWithExactNumbers('{"id": 9007199254740993}');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(typeof spy.mock.calls[0][1]).toBe("function");
+    }
+  );
+
+  test.runIf(hasReviverSource)(
+    "returns an empty map, not null, on the fast path",
+    () => {
+      const { data, exactNumbers } = parseWithExactNumbers('{"ok": 7}');
+
+      // null means "this engine cannot do exact numbers at all"; the fast path
+      // must not be mistaken for that.
+      expect(exactNumbers).not.toBeNull();
+      expect(exactNumbers!.get(data as object)).toBeUndefined();
+    }
+  );
+
+  test.runIf(hasReviverSource)("preserves a 64-bit integer", () => {
+    const { data, exactNumbers } = parseWithExactNumbers(
+      '{"a": 9007199254740993}'
+    );
+
+    expect(exactNumbers!.get(data as object)?.get("a")).toBe(
+      "9007199254740993"
+    );
+  });
+
+  test.runIf(hasReviverSource)("preserves -0", () => {
+    const { data, exactNumbers } = parseWithExactNumbers('{"a": -0}');
+
+    expect(exactNumbers!.get(data as object)?.get("a")).toBe("-0");
+  });
+
+  test("parses correctly when the only long digit run is inside a string", () => {
+    const raw = '{"order": "12345678901234567890", "n": 1}';
     expect(parseWithExactNumbers(raw).data).toEqual(JSON.parse(raw));
   });
 });

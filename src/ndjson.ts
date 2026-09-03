@@ -1,7 +1,7 @@
 import type { JsonValue } from "./tree-model";
 import {
+  mayContainLossyNumbers,
   parseIntoExactNumbers,
-  parseWithExactNumbers,
   supportsReviverSource,
   type ExactNumberMap,
 } from "./lossless-numbers";
@@ -41,20 +41,19 @@ export function parseNdjson(raw: string): {
   const nonEmpty = lines.filter((line) => line.trim() !== "");
   if (nonEmpty.length < 2) return null;
 
-  let hasContainer = false;
-  for (const line of nonEmpty) {
-    let value: unknown;
-    try {
-      value = JSON.parse(line);
-    } catch {
-      return null;
-    }
-    if (typeof value === "object" && value !== null) hasContainer = true;
-  }
+  // Validation and parsing are the same pass: parseLines returns null on the
+  // first line that is not JSON, so a rejected document costs one parse per
+  // line up to that point — and, when it is rejected on line 1 as most plain
+  // text is, nothing more than that one parse.
+  const parsed = parseLines(raw, nonEmpty);
+  if (!parsed) return null;
+
+  const hasContainer = parsed.data.some(
+    (value) => typeof value === "object" && value !== null
+  );
   if (!hasContainer) return null;
 
-  // Confirmed NDJSON: build the synthetic array, preserving exact numbers.
-  return parseLines(nonEmpty);
+  return parsed;
 }
 
 // Forces the NDJSON path for documents the caller already knows are NDJSON
@@ -66,40 +65,74 @@ export function parseNdjsonLines(raw: string): {
 } | null {
   const nonEmpty = raw.split("\n").filter((line) => line.trim() !== "");
   if (nonEmpty.length === 0) return null;
-  for (const line of nonEmpty) {
-    try {
-      JSON.parse(line);
-    } catch {
-      return null;
-    }
-  }
-  return parseLines(nonEmpty);
+  return parseLines(raw, nonEmpty);
 }
 
-function parseLines(nonEmpty: string[]): {
+// Parses every line of `nonEmpty` into a synthetic array, or returns null at
+// the first line that is not valid JSON. `raw` is the whole document, scanned
+// once to choose the parser for all of the lines: a text with no lossy number
+// token anywhere has no lossy line either, and deciding per line would scan
+// the same characters over again.
+//
+// The order matters. Line 1 is parsed before the scan, not after, because a
+// large text that is not NDJSON is rejected on line 1 — scanning first would
+// charge every such page four regex passes over its whole length (~40 ms on
+// 20 MB) purely to say no. The cost of that order is that a lossy document
+// parses line 1 a second time, with the reviver; every other line is parsed
+// exactly once, whatever the document.
+function parseLines(
+  raw: string,
+  nonEmpty: string[]
+): {
   data: JsonValue[];
   exactNumbers: ExactNumberMap | null;
-} {
-  if (!supportsReviverSource()) {
-    return {
-      data: nonEmpty.map((line) => parseWithExactNumbers(line).data),
-      exactNumbers: null,
-    };
+} | null {
+  const exactNumbers: ExactNumberMap | null = supportsReviverSource()
+    ? new WeakMap()
+    : null;
+
+  // The first line is validated with a plain parse before anything scans the
+  // document. Most texts that reach here are not NDJSON at all and fail on
+  // this very line, and rejection has to stay as cheap as it was before the
+  // scan existed.
+  let firstValue: JsonValue;
+  try {
+    firstValue = JSON.parse(nonEmpty[0]) as JsonValue;
+  } catch {
+    return null;
   }
+
+  // Null when the engine cannot record exact numbers at all, and null again
+  // when the document holds no token that could lose any — either way every
+  // line takes the plain, much faster parse.
+  const recordInto =
+    exactNumbers !== null && mayContainLossyNumbers(raw) ? exactNumbers : null;
 
   // A line that is a bare number has no holder of its own — its exact token
   // would land on JSON.parse's discarded root wrapper. Point each line at its
   // slot in the synthetic array instead; the map is keyed on the array's
   // identity, so recording into it while it is still filling is fine.
-  const exactNumbers: ExactNumberMap = new WeakMap();
   const data: JsonValue[] = [];
-  nonEmpty.forEach((line, index) => {
-    data.push(
-      parseIntoExactNumbers(line, exactNumbers, {
-        holder: data,
-        key: String(index),
-      })
-    );
-  });
+  const parseLine = (line: string, index: number): JsonValue =>
+    recordInto
+      ? parseIntoExactNumbers(line, recordInto, {
+          holder: data,
+          key: String(index),
+        })
+      : (JSON.parse(line) as JsonValue);
+
+  // Line 1 was already parsed, plainly, before the scan could say whether the
+  // reviver was needed — so a document that does hold a lossy token pays one
+  // extra parse of that one line to get its exact numbers recorded. No other
+  // line is ever parsed twice, and a document with nothing lossy in it never
+  // re-parses at all.
+  data.push(recordInto ? parseLine(nonEmpty[0], 0) : firstValue);
+  for (let index = 1; index < nonEmpty.length; index += 1) {
+    try {
+      data.push(parseLine(nonEmpty[index], index));
+    } catch {
+      return null;
+    }
+  }
   return { data, exactNumbers };
 }
