@@ -17,9 +17,11 @@ import {
 // a scalar-only file like "1\n2\n3" is far more likely prose or a number list
 // than a JSON stream. null counts as a scalar here, not a container.
 //
-// Lossless numbers from every line are merged into one ExactNumberMap; the
-// per-line holders are distinct objects, so they never collide. Returns null
-// (not an exception) for anything that is not NDJSON.
+// Lossless numbers from every line are merged into one ExactNumberMap without
+// colliding: a line that parses to a container brings its own holder, and a
+// line that parses to a bare number is keyed on the synthetic array under that
+// line's index (see `parseLines`). Returns null (not an exception) for
+// anything that is not NDJSON.
 export function parseNdjson(raw: string): {
   data: JsonValue[];
   exactNumbers: ExactNumberMap | null;
@@ -85,7 +87,19 @@ function parseLines(nonEmpty: string[]): {
     };
   }
 
+  // A line that is a bare number has no holder of its own — its exact token
+  // would land on JSON.parse's discarded root wrapper. Point each line at its
+  // slot in the synthetic array instead; the map is keyed on the array's
+  // identity, so recording into it while it is still filling is fine.
   const exactNumbers: ExactNumberMap = new WeakMap();
-  const data = nonEmpty.map((line) => parseIntoExactNumbers(line, exactNumbers));
+  const data: JsonValue[] = [];
+  nonEmpty.forEach((line, index) => {
+    data.push(
+      parseIntoExactNumbers(line, exactNumbers, {
+        holder: data,
+        key: String(index),
+      })
+    );
+  });
   return { data, exactNumbers };
 }

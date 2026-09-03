@@ -2,8 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   numberLosesPrecision,
+  parseIntoExactNumbers,
   parseWithExactNumbers,
   stringifyWithExactNumbers,
+  type ExactNumberMap,
 } from "./lossless-numbers";
 
 // Reviver source access and JSON.rawJSON need V8 11.4+ (Node 21+, Chrome
@@ -70,6 +72,70 @@ describe("parseWithExactNumbers", () => {
     const raw = '{"a": [1, 2.5, "x"], "b": null}';
     expect(parseWithExactNumbers(raw).data).toEqual(JSON.parse(raw));
   });
+});
+
+describe("parseIntoExactNumbers", () => {
+  test.runIf(hasReviverSource)(
+    "records a lossy top-level number against the caller's root slot",
+    () => {
+      const into: ExactNumberMap = new WeakMap();
+      const holder: unknown[] = [];
+      const value = parseIntoExactNumbers("9007199254740993", into, {
+        holder,
+        key: "0",
+      });
+
+      // The parsed value is already corrupted; only the recorded text is exact.
+      expect(value).toBe(9007199254740992);
+      expect(into.get(holder)?.get("0")).toBe("9007199254740993");
+    }
+  );
+
+  test.runIf(hasReviverSource)("records a top-level -0 against the root slot", () => {
+    const into: ExactNumberMap = new WeakMap();
+    const holder: unknown[] = [];
+    parseIntoExactNumbers("-0", into, { holder, key: "2" });
+
+    expect(into.get(holder)?.get("2")).toBe("-0");
+  });
+
+  test.runIf(hasReviverSource)(
+    "leaves the root slot alone for a lossless top-level number",
+    () => {
+      const into: ExactNumberMap = new WeakMap();
+      const holder: unknown[] = [];
+      parseIntoExactNumbers("42", into, { holder, key: "0" });
+
+      expect(into.get(holder)).toBeUndefined();
+    }
+  );
+
+  test.runIf(hasReviverSource)(
+    "does not mistake an empty-string member for the root",
+    () => {
+      // The reviver sees key "" twice here: once for the member, once for
+      // JSON.parse's root wrapper. Only a top-level number may reach the slot.
+      const into: ExactNumberMap = new WeakMap();
+      const holder: unknown[] = [];
+      const value = parseIntoExactNumbers('{"": 9007199254740993}', into, {
+        holder,
+        key: "0",
+      });
+
+      expect(into.get(value as object)?.get("")).toBe("9007199254740993");
+      expect(into.get(holder)).toBeUndefined();
+    }
+  );
+
+  test.runIf(hasReviverSource)(
+    "keeps nested recording unchanged when no root slot is given",
+    () => {
+      const into: ExactNumberMap = new WeakMap();
+      const value = parseIntoExactNumbers('{"id": 9007199254740993}', into);
+
+      expect(into.get(value as object)?.get("id")).toBe("9007199254740993");
+    }
+  );
 });
 
 describe("stringifyWithExactNumbers", () => {
