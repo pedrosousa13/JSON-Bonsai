@@ -7,6 +7,7 @@ import {
   type DelimitedTable,
 } from "./csv";
 import { truncateCodePoints } from "./truncate";
+import { flashLabel } from "./flash-label";
 
 const EXPORT_FILENAMES: Record<DelimitedFormat, string> = {
   csv: "json-bonsai-export.csv",
@@ -419,14 +420,6 @@ export function createTableView(
     return serializeDelimited(collectExportTable(), format);
   }
 
-  function flashButton(button: HTMLButtonElement, message: string): void {
-    const original = button.textContent;
-    button.textContent = message;
-    setTimeout(() => {
-      button.textContent = original;
-    }, 1000);
-  }
-
   function downloadExport(format: DelimitedFormat): void {
     const blob = new Blob([exportText(format)], { type: EXPORT_MIME[format] });
     const url = URL.createObjectURL(blob);
@@ -452,7 +445,7 @@ export function createTableView(
       if (action === "copy") {
         void navigator.clipboard
           .writeText(exportText(format))
-          .then(() => flashButton(button, "Copied!"));
+          .then(() => flashLabel(button, "Copied!"));
       } else {
         downloadExport(format);
       }

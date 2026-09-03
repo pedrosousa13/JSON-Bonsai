@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { buildTreeModel } from "./tree-model";
+import { buildTreeModel, findNodeByPath } from "./tree-model";
 import { compileSearchRegex, createLocalTreeSearchIndex } from "./tree-search";
 
 const model = buildTreeModel({
@@ -64,7 +64,7 @@ describe("substring search (regex off)", () => {
 
   test("ranks an exact value match ahead of a path match", async () => {
     await expect(index.search("alpha")).resolves.toEqual([
-      model.pathToId.get("data.items[0].tag"),
+      findNodeByPath(model, "data.items[0].tag")!.id,
     ]);
   });
 });
@@ -103,7 +103,7 @@ describe("chunked scanning", () => {
     expect(settled).toBe(false);
 
     await expect(pending).resolves.toEqual([
-      largeModel.pathToId.get("data[1023].tag"),
+      findNodeByPath(largeModel, "data[1023].tag")!.id,
     ]);
   });
 

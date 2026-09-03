@@ -28,7 +28,7 @@ export interface TreeSearchIndex {
 // scan is chunked to keep any single task short enough to leave frames free.
 const SEARCH_SCAN_BATCH_SIZE = 500;
 
-function normalizeSearchText(value: string): string {
+export function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase();
 }
 
@@ -96,6 +96,8 @@ function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
   }));
 }
 
+// `query` arrives ready to match: normalized for a substring search, verbatim
+// for a regex one. Normalizing here would repeat the work on every batch.
 function collectTreeSearchMatches(
   nodes: readonly TreeSearchNode[],
   query: string,
@@ -104,8 +106,6 @@ function collectTreeSearchMatches(
   options?: TreeSearchOptions
 ): TreeSearchMatch[] {
   if (options?.regex) {
-    // The raw query is used verbatim — trimming/lowercasing it would corrupt
-    // regex metacharacters and escapes. Invalid patterns yield no matches.
     const regex = compileSearchRegex(query);
     if (regex === null) return [];
 
@@ -118,13 +118,10 @@ function collectTreeSearchMatches(
     return matches;
   }
 
-  const normalizedQuery = normalizeSearchText(query);
-  if (!normalizedQuery) return [];
-
   const matches: TreeSearchMatch[] = [];
   for (let index = start; index < end; index += 1) {
     const node = nodes[index];
-    const score = matchScore(node, normalizedQuery);
+    const score = matchScore(node, query);
     if (score !== null) matches.push({ nodeId: node.id, score });
   }
   return matches;
@@ -158,10 +155,12 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
 
   return {
     async search(query: string, options?: TreeSearchOptions): Promise<number[]> {
+      const effectiveQuery = options?.regex ? query : normalizeSearchText(query);
+
       // An empty substring query has no matches; skip iterating every batch.
       // (Regex matching is left to collectTreeSearchMatches, which also
       // handles invalid patterns by returning no matches.)
-      if (!options?.regex && !normalizeSearchText(query)) return [];
+      if (!options?.regex && !effectiveQuery) return [];
 
       const matches: TreeSearchMatch[] = [];
       const total = searchNodes.length;
@@ -174,7 +173,7 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
         if (disposed) return [];
 
         const end = Math.min(start + SEARCH_SCAN_BATCH_SIZE, total);
-        const batch = collectTreeSearchMatches(searchNodes, query, start, end, options);
+        const batch = collectTreeSearchMatches(searchNodes, effectiveQuery, start, end, options);
         matches.push(...batch);
 
         if (end < total) await nextTask();

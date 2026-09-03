@@ -4,8 +4,13 @@ import {
   type TreeModel,
   isContainerNode,
 } from "./tree-model";
-import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
+import {
+  createLocalTreeSearchIndex,
+  normalizeSearchText,
+  type TreeSearchIndex,
+} from "./tree-search";
 import { truncateCodePoints } from "./truncate";
+import { flashLabel, FLASH_LABEL_MS } from "./flash-label";
 
 const VIRTUAL_ROW_HEIGHT = 24;
 const VIRTUAL_OVERSCAN = 30;
@@ -299,21 +304,21 @@ export interface TreeSearchState {
 }
 
 export interface TreeViewController {
-  render: (scrollToNodeId?: number | null) => Promise<void>;
-  collapseToLevel: (targetLevel: number) => Promise<void>;
-  expandAll: () => Promise<void>;
-  toggleNode: (nodeId: number) => Promise<void>;
-  toggleAllChildren: (nodeId: number) => Promise<void>;
+  render: () => void;
+  collapseToLevel: (targetLevel: number) => void;
+  expandAll: () => void;
+  toggleNode: (nodeId: number) => void;
+  toggleAllChildren: (nodeId: number) => void;
   search: (query: string, regex?: boolean) => Promise<TreeSearchState>;
-  stepSearch: (delta: number) => Promise<TreeSearchState>;
-  clearSearch: () => Promise<TreeSearchState>;
+  stepSearch: (delta: number) => TreeSearchState;
+  clearSearch: () => TreeSearchState;
   getSearchState: () => TreeSearchState;
   getStats: () => { maxDepth: number; totalNodes: number };
-  getNodePath: (nodeId: number) => string;
   getNodeValue: (nodeId: number) => JsonValue;
   getNodeNumberText: (nodeId: number) => string | null;
   getAncestorIds: (nodeId: number) => number[];
   getRowElement: (nodeId: number) => HTMLElement | null;
+  revealNode: (nodeId: number) => void;
   refresh: () => void;
   dispose: () => void;
 }
@@ -365,20 +370,13 @@ export function createTreeView(
     return sums;
   }
 
-  function setInitialExpansion(initialExpansionDepth?: number | null): void {
-    expanded.fill(0);
-    if (initialExpansionDepth === null || initialExpansionDepth === undefined) {
-      for (let i = 0; i < totalNodes; i += 1) {
-        if (model.nodes[i].childIds.length > 0) expanded[i] = 1;
-      }
-    } else {
-      for (let i = 0; i < totalNodes; i += 1) {
-        const node = model.nodes[i];
-        if (node.childIds.length > 0 && node.depth < initialExpansionDepth) {
-          expanded[i] = 1;
-        }
-      }
+  function applyExpansionDepth(depth: number | null): void {
+    for (let i = 0; i < totalNodes; i += 1) {
+      const node = model.nodes[i];
+      expanded[i] =
+        node.childIds.length > 0 && (depth === null || node.depth < depth) ? 1 : 0;
     }
+    recomputeAllSubtreeCounts();
   }
 
   function isExpandedBit(nodeId: number): boolean {
@@ -520,8 +518,7 @@ export function createTreeView(
     return true;
   }
 
-  setInitialExpansion(options?.initialExpansionDepth);
-  recomputeAllSubtreeCounts();
+  applyExpansionDepth(options?.initialExpansionDepth ?? null);
 
   const rowPool: PoolRow[] = [];
   const rowByNodeId = new Map<number, HTMLElement>();
@@ -693,13 +690,8 @@ export function createTreeView(
     });
   }
 
-  function render(scrollToNodeId: number | null = null): Promise<void> {
-    pendingScrollNodeId = scrollToNodeId;
-    if (scrollToNodeId !== null) {
-      scrollToNode(scrollToNodeId);
-    }
+  function render(): void {
     renderWindow();
-    return Promise.resolve();
   }
 
   function snapshotExpanded(): Uint8Array {
@@ -709,6 +701,18 @@ export function createTreeView(
   function restoreExpanded(snapshot: Uint8Array): void {
     expanded.set(snapshot);
     recomputeAllSubtreeCounts();
+  }
+
+  function afterExpansionDepthChange(): void {
+    if (preSearchExpandedSnapshot !== null) {
+      preSearchExpandedSnapshot = snapshotExpanded();
+    }
+    if (searchMatches.length > 0 && activeSearchIndex >= 0) {
+      revealNode(searchMatches[activeSearchIndex]);
+    } else {
+      pendingScrollNodeId = null;
+      renderWindow();
+    }
   }
 
   function revealNode(nodeId: number): void {
@@ -728,41 +732,17 @@ export function createTreeView(
   const controller: TreeViewController = {
     render,
 
-    async collapseToLevel(targetLevel: number): Promise<void> {
-      for (let i = 0; i < totalNodes; i += 1) {
-        const node = model.nodes[i];
-        expanded[i] =
-          node.childIds.length > 0 && node.depth < targetLevel ? 1 : 0;
-      }
-      recomputeAllSubtreeCounts();
-      if (preSearchExpandedSnapshot !== null) {
-        preSearchExpandedSnapshot = snapshotExpanded();
-      }
-      if (searchMatches.length > 0 && activeSearchIndex >= 0) {
-        revealNode(searchMatches[activeSearchIndex]);
-      } else {
-        pendingScrollNodeId = null;
-        renderWindow();
-      }
+    collapseToLevel(targetLevel: number): void {
+      applyExpansionDepth(targetLevel);
+      afterExpansionDepthChange();
     },
 
-    async expandAll(): Promise<void> {
-      for (let i = 0; i < totalNodes; i += 1) {
-        expanded[i] = model.nodes[i].childIds.length > 0 ? 1 : 0;
-      }
-      recomputeAllSubtreeCounts();
-      if (preSearchExpandedSnapshot !== null) {
-        preSearchExpandedSnapshot = snapshotExpanded();
-      }
-      if (searchMatches.length > 0 && activeSearchIndex >= 0) {
-        revealNode(searchMatches[activeSearchIndex]);
-      } else {
-        pendingScrollNodeId = null;
-        renderWindow();
-      }
+    expandAll(): void {
+      applyExpansionDepth(null);
+      afterExpansionDepthChange();
     },
 
-    async toggleNode(nodeId: number): Promise<void> {
+    toggleNode(nodeId: number): void {
       const node = model.nodes[nodeId];
       if (node.childIds.length === 0) return;
       const wasExpanded = isExpandedBit(nodeId);
@@ -772,7 +752,7 @@ export function createTreeView(
       renderWindow();
     },
 
-    async toggleAllChildren(nodeId: number): Promise<void> {
+    toggleAllChildren(nodeId: number): void {
       const node = model.nodes[nodeId];
       if (node.childIds.length === 0) return;
 
@@ -809,8 +789,7 @@ export function createTreeView(
     },
 
     async search(query: string, regex = false): Promise<TreeSearchState> {
-      // Regex queries pass through verbatim; substring queries are normalized.
-      const effectiveQuery = regex ? query : query.trim().toLowerCase();
+      const effectiveQuery = regex ? query : normalizeSearchText(query);
 
       if (!effectiveQuery) {
         return controller.clearSearch();
@@ -844,7 +823,7 @@ export function createTreeView(
       return currentSearchState();
     },
 
-    async stepSearch(delta: number): Promise<TreeSearchState> {
+    stepSearch(delta: number): TreeSearchState {
       if (searchMatches.length === 0) return currentSearchState();
       activeSearchIndex =
         (activeSearchIndex + delta + searchMatches.length) % searchMatches.length;
@@ -852,7 +831,7 @@ export function createTreeView(
       return currentSearchState();
     },
 
-    async clearSearch(): Promise<TreeSearchState> {
+    clearSearch(): TreeSearchState {
       searchToken += 1;
       searchQuery = "";
       searchRegex = false;
@@ -882,10 +861,6 @@ export function createTreeView(
       };
     },
 
-    getNodePath(nodeId: number): string {
-      return model.nodes[nodeId].path;
-    },
-
     getNodeValue(nodeId: number): JsonValue {
       return model.nodes[nodeId].value;
     },
@@ -899,6 +874,8 @@ export function createTreeView(
     getRowElement(nodeId: number): HTMLElement | null {
       return rowByNodeId.get(nodeId) || null;
     },
+
+    revealNode,
 
     refresh(): void {
       scheduleWindowRender();
@@ -1005,14 +982,12 @@ export function setupHoverPath(
     if (!text) return;
 
     navigator.clipboard.writeText(text);
-    const originalText = pathCopyBtn.textContent;
-    pathCopyBtn.textContent = "Copied!";
+    flashLabel(pathCopyBtn, "Copied!");
     setTimeout(() => {
-      pathCopyBtn.textContent = originalText;
       pinned = false;
       clearHighlights();
       clearPath();
-    }, 1000);
+    }, FLASH_LABEL_MS);
   });
 
   document.addEventListener("keydown", (e) => {

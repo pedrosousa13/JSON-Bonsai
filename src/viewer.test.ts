@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { buildTreeModel } from "./tree-model";
+import { buildTreeModel, findNodeByPath } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
 import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
@@ -202,14 +202,14 @@ describe("createTreeView", () => {
     const firstSearch = treeView.search("first");
     const secondSearch = treeView.search("second");
 
-    betaResult.resolve([model.pathToId.get("data.beta.nested.target")!]);
+    betaResult.resolve([findNodeByPath(model, "data.beta.nested.target")!.id]);
     await secondSearch;
 
     expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
       "data.beta.nested.target"
     );
 
-    alphaResult.resolve([model.pathToId.get("data.alpha.nested.target")!]);
+    alphaResult.resolve([findNodeByPath(model, "data.alpha.nested.target")!.id]);
     await firstSearch;
 
     expect(treeView.getSearchState().query).toBe("second");
@@ -237,10 +237,10 @@ describe("createTreeView", () => {
     await treeView.render();
     expect(recomputeCount).toBe(1);
 
-    await treeView.toggleNode(model.pathToId.get("data.alpha")!);
+    await treeView.toggleNode(findNodeByPath(model, "data.alpha")!.id);
     expect(recomputeCount).toBe(1);
 
-    await treeView.toggleNode(model.pathToId.get("data.alpha")!);
+    await treeView.toggleNode(findNodeByPath(model, "data.alpha")!.id);
     expect(recomputeCount).toBe(1);
   });
 
@@ -427,10 +427,10 @@ describe("createTreeView", () => {
     expect(smallValue.title).toBe("");
 
     // Copy actions read the exact source through this accessor.
-    expect(treeView.getNodeNumberText(model.pathToId.get("data.big")!)).toBe(
+    expect(treeView.getNodeNumberText(findNodeByPath(model, "data.big")!.id)).toBe(
       "9007199254740993"
     );
-    expect(treeView.getNodeNumberText(model.pathToId.get("data.small")!)).toBe(null);
+    expect(treeView.getNodeNumberText(findNodeByPath(model, "data.small")!.id)).toBe(null);
   });
 
   test("expandAll keeps DOM windowed at any size", async () => {
@@ -608,7 +608,7 @@ describe("createTreeView", () => {
     const model = buildTreeModel(Array.from({ length: 200_000 }, (_, i) => i));
     const treeView = createTreeView(container, model, { scrollContainer });
 
-    await treeView.render(model.pathToId.get("data[150000]")!);
+    treeView.revealNode(findNodeByPath(model, "data[150000]")!.id);
 
     expect(lineForPath(container, "data[150000]").hidden).toBe(false);
   });

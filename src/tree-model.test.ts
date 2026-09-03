@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { buildTreeModel, type JsonValue } from "./tree-model";
+import { buildTreeModel, findNodeByPath, type JsonValue } from "./tree-model";
 import { projectLastIndex } from "./query-suggest";
 import type { ExactNumberMap } from "./lossless-numbers";
 
@@ -55,8 +55,8 @@ describe("buildTreeModel", () => {
     ]);
 
     const model = buildTreeModel(data, exactNumbers);
-    const idNode = model.nodes[model.pathToId.get("data.id")!];
-    const plainNode = model.nodes[model.pathToId.get("data.plain")!];
+    const idNode = findNodeByPath(model, "data.id")!;
+    const plainNode = findNodeByPath(model, "data.plain")!;
 
     expect(idNode.numberText).toBe("9007199254740993");
     // Search must find the source digits, not the corrupted parsed value.
@@ -71,7 +71,7 @@ describe("buildTreeModel", () => {
     const value = `${"a".repeat(199)}😀${"b".repeat(20)}`;
 
     const model = buildTreeModel({ s: value });
-    const node = model.nodes[model.pathToId.get("data.s")!];
+    const node = findNodeByPath(model, "data.s")!;
 
     expect(node.hasLongSearchValue).toBe(true);
     expect(node.searchValue).toBe("a".repeat(199));
