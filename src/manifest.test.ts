@@ -13,5 +13,5 @@ test("manifest exposes only extension assets needed by content scripts", () => {
     (entry) => entry.resources ?? []
   );
 
-  expect(resources).toEqual(["page-script.js", "tree-worker.js", "content.css"]);
+  expect(resources).toEqual(["page-script.js", "content.css"]);
 });

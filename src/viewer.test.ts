@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import { buildTreeModel } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
-import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-worker-client";
+import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
 import { runQuery } from "./query";
 
 function createContainer(): HTMLElement {
