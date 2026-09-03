@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { buildTreeModel, type JsonValue } from "./tree-model";
+import { projectLastIndex } from "./query-suggest";
 import type { ExactNumberMap } from "./lossless-numbers";
 
 describe("buildTreeModel", () => {
@@ -103,5 +104,61 @@ describe("buildTreeModel", () => {
         ["data.users[0].tags[0]", true],
       ])
     );
+  });
+
+  // Pins the invariant `node.inArray === (projectLastIndex(node.path) !== null)`.
+  //
+  // The "ƒ all" affordance is split across two call sites that must agree, and
+  // nothing but this test makes them:
+  //   - src/viewer.ts hides the button on `!node.inArray` (whether to SHOW it),
+  //   - src/content.ts's click handler recomputes projectLastIndex(dataset.path)
+  //     and does nothing when it is null (what the button DOES).
+  //
+  // They agree only because buildPath emits a digit-only bracket segment on its
+  // `isArrayElement` branch alone: every other key becomes `.identifier` or
+  // `[JSON.stringify(key)]`, and the latter always opens with `"`. Change that
+  // path format and the pairing breaks silently in both places at once — a
+  // visible-but-dead button, or a hidden-but-projectable node. Fail here first.
+  test("inArray agrees with projectLastIndex on every node", () => {
+    const documents: JsonValue[] = [
+      // Pure-digit key: not an index, however much its path looks like one.
+      { "0": 1 },
+      // Digits inside brackets inside the key itself.
+      { "a[0]": 1 },
+      // Key carrying both a quote and a bracket, so the escaped `]` must not
+      // terminate the segment.
+      { 'q"[3]': 1 },
+      // Key carrying a backslash, which JSON-escapes to `\\`.
+      { "a\\b": 1, "back\\slash[7]": 2 },
+      // Array at the root.
+      [1, 2, 3],
+      // Arrays nested in objects nested in arrays.
+      [{ tags: [["deep"], { more: [1] }] }, { tags: [] }],
+      // Empty containers, at the root and inside an array.
+      {},
+      [],
+      { empties: [[], {}], nested: { arr: [], obj: {} } },
+      // Indices >= 10, so two-digit segments are exercised.
+      { many: Array.from({ length: 12 }, (_, i) => ({ i })) },
+      // A key that is literally the wildcard.
+      { "[*]": 1 },
+      [{ "[*]": 1 }],
+      // Mixed bag: identifier keys, quoted keys and indices on one path.
+      { "a b": [{ "0": [{ "[*]": { "k[0]y": 1 } }] }] },
+    ];
+
+    const divergences: string[] = [];
+    for (const doc of documents) {
+      for (const node of buildTreeModel(doc).nodes) {
+        const projectable = projectLastIndex(node.path) !== null;
+        if (node.inArray !== projectable) {
+          divergences.push(
+            `${node.path} — inArray=${node.inArray}, projectable=${projectable}`
+          );
+        }
+      }
+    }
+
+    expect(divergences).toEqual([]);
   });
 });
