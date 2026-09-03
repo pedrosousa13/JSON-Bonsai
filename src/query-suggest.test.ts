@@ -278,6 +278,35 @@ describe("query from here on keys that need escaping", () => {
       });
     });
   }
+
+  test("round-trips an awkward top-level key holding an array", () => {
+    const doc: JsonValue = { "arr]x": [10, 20] };
+    const model = buildTreeModel(doc);
+    const node = model.nodes.find((n) => n.key === "arr]x")!;
+
+    expect(runQuery(doc, toJmespath(node.path))).toEqual({
+      ok: true,
+      result: [10, 20],
+    });
+
+    // The element proves the scanner resumes after the quoted segment.
+    const element = model.nodes[model.pathToId.get(`${node.path}[1]`)!];
+    expect(runQuery(doc, toJmespath(element.path))).toEqual({
+      ok: true,
+      result: 20,
+    });
+  });
+
+  test("round-trips an awkward key nested inside another awkward key", () => {
+    const doc: JsonValue = { 'say "hi"': { "a\\b": 5 } };
+    const model = buildTreeModel(doc);
+    const node = model.nodes.find((n) => n.key === "a\\b")!;
+
+    expect(runQuery(doc, toJmespath(node.path))).toEqual({
+      ok: true,
+      result: 5,
+    });
+  });
 });
 
 describe("projectLastIndex", () => {
