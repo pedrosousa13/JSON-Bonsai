@@ -8,14 +8,12 @@ import {
 import { toJsonSchema } from "./schema";
 import { flashLabel, FLASH_LABEL_MS } from "./flash-label";
 import {
-  BUILTIN_SCHEMES,
-  DEFAULT_DARK_ID,
-  DEFAULT_LIGHT_ID,
-  DEFAULT_THEME_ID,
-  parseScheme,
-  schemeToCssVars,
-  type Base16Scheme,
-} from "./themes";
+  createThemeSettings,
+  defaultThemeState,
+  loadThemeState,
+  EXPOSE_DATA_KEY,
+  REMEMBER_QUERY_KEY,
+} from "./theme-settings";
 import { createScopeResolver, runQuery } from "./query";
 import {
   JMESPATH_FUNCTIONS,
@@ -23,9 +21,8 @@ import {
   composeNodeQuery,
   projectLastIndex,
   suggestAtScoped,
-  type KeySuggestion,
-  type ValueKind,
 } from "./query-suggest";
+import { createQuerySuggestUi } from "./query-suggest-ui";
 import {
   createOriginPrefsWriter,
   loadOriginPrefs,
@@ -110,87 +107,7 @@ function detectJSON(): {
   return null;
 }
 
-async function storageSet(key: string, value: string): Promise<void> {
-  await chrome.storage.local.set({ [key]: value });
-}
-
-const REMEMBER_QUERY_KEY = "jv-remember-query";
-const EXPOSE_DATA_KEY = "jv-expose-window-data";
 const RECENT_QUERY_CAP = 10;
-
-interface ThemeState {
-  themeId: string;
-  customs: Base16Scheme[];
-}
-
-async function loadThemeState(): Promise<ThemeState> {
-  // One-time migration from the old { mode, darkId, lightId } model to a single
-  // themeId. Also clears the older jv-theme / jv-custom-cursor keys.
-  const legacy = await chrome.storage.local.get([
-    "jv-theme",
-    "jv-custom-cursor",
-    "jv-theme-mode",
-    "jv-theme-dark",
-    "jv-theme-light",
-    "jv-theme-id",
-  ]);
-
-  let themeId = legacy["jv-theme-id"] as string | undefined;
-
-  if (typeof themeId !== "string") {
-    // Derive the single id from whatever the old model would have shown.
-    const mode =
-      (legacy["jv-theme-mode"] as string | undefined) ??
-      (legacy["jv-theme"] as string | undefined);
-    // DEFAULT_DARK_ID / DEFAULT_LIGHT_ID are migration fallbacks only.
-    const darkId = (legacy["jv-theme-dark"] as string | undefined) ?? DEFAULT_DARK_ID;
-    const lightId = (legacy["jv-theme-light"] as string | undefined) ?? DEFAULT_LIGHT_ID;
-    if (mode === "light") {
-      themeId = lightId;
-    } else if (mode === "dark") {
-      themeId = darkId;
-    } else {
-      // auto or unset: pick by OS preference, read once.
-      themeId = window.matchMedia("(prefers-color-scheme: light)").matches
-        ? lightId
-        : darkId;
-    }
-    try {
-      await chrome.storage.local.set({ "jv-theme-id": themeId });
-    } catch {
-      // Extension reloaded mid-migration — the derived id still applies to
-      // this page, and the write retries on the next load.
-    }
-  }
-
-  // Remove every superseded key.
-  const stale = [
-    "jv-theme",
-    "jv-custom-cursor",
-    "jv-theme-mode",
-    "jv-theme-dark",
-    "jv-theme-light",
-  ].filter((key) => key in legacy);
-  if (stale.length > 0) {
-    try {
-      await chrome.storage.local.remove(stale);
-    } catch {
-      // Extension reloaded mid-migration — the stale keys are inert, and the
-      // cleanup retries on the next load.
-    }
-  }
-
-  const stored = await chrome.storage.local.get({ "jv-custom-themes": "[]" });
-  let customs: Base16Scheme[] = [];
-  try {
-    const parsed = JSON.parse(stored["jv-custom-themes"] as string) as unknown;
-    if (Array.isArray(parsed)) customs = parsed as Base16Scheme[];
-  } catch {
-    // Corrupted storage — start with no custom themes.
-  }
-
-  return { themeId, customs };
-}
 
 // Awaits an already-started fallible read and degrades to `fallback` if it
 // rejects. Init clears the page and cannot put it back, so no preference read
@@ -229,10 +146,10 @@ async function init(): Promise<void> {
   // back to the default it would get on a fresh profile. Deliberately still
   // sequential and individually fallible — batching them is a separate
   // concern, and one rejection must not lose the other three answers.
-  const themeState = await withFallback(loadThemeState(), {
-    themeId: DEFAULT_THEME_ID,
-    customs: [],
-  });
+  const themeState = await withFallback(
+    loadThemeState(chrome.storage.local),
+    defaultThemeState()
+  );
   const originPrefs = await loadOriginPrefs(location.origin);
   const originPrefsWriter = createOriginPrefsWriter(location.origin, originPrefs);
   // Whether to remember the last query per origin. Global (like theme), since
@@ -330,27 +247,40 @@ async function init(): Promise<void> {
     </div>
   `;
 
-  function allSchemes(): Base16Scheme[] {
-    return [...BUILTIN_SCHEMES, ...themeState.customs];
-  }
+  // The settings menu owns the theme and the two preference toggles. Created
+  // here so the theme paints before the root reaches the body; its menu is
+  // wired later, with the rest of the toolbar (see themeSettings.mountMenu).
+  const themeSettings = createThemeSettings({
+    root,
+    state: themeState,
+    storage: chrome.storage.local,
+    rememberQuery,
+    exposeWindowData,
+    onRememberQueryChange(enabled) {
+      rememberQuery = enabled;
+      updateSearchControls();
+      // Persist now so toggling on saves the current query and toggling off
+      // drops it immediately.
+      persistOriginPrefs();
+    },
+    onExposeWindowDataChange(enabled) {
+      exposeWindowData = enabled;
+      // Apply live: inject now when enabling; strip the in-DOM copy when
+      // disabling. An already-set window.data in the page's main world clears
+      // on reload.
+      if (exposeWindowData) {
+        injectPageData(raw);
+      } else {
+        removeInjectedPageData();
+      }
+    },
+    onMenuOpen() {
+      closeSearchPanel();
+      closeQueryPanel();
+    },
+  });
 
-  function resolveScheme(): Base16Scheme {
-    return (
-      allSchemes().find((s) => s.id === themeState.themeId) ??
-      BUILTIN_SCHEMES.find((s) => s.id === DEFAULT_THEME_ID)!
-    );
-  }
-
-  function applyTheme(): void {
-    const scheme = resolveScheme();
-    for (const [name, value] of Object.entries(schemeToCssVars(scheme))) {
-      root.style.setProperty(name, value);
-    }
-    // Overscroll area behind the viewer follows the toolbar color.
-    document.documentElement.style.background = scheme.palette.base01;
-  }
-
-  applyTheme();
+  themeSettings.applyTheme();
 
   body.appendChild(root);
 
@@ -1111,7 +1041,7 @@ async function init(): Promise<void> {
     if (currentView !== "tree" && currentView !== "table") return;
     // Only one popup at a time: close the query panel and settings menu.
     queryPanel.hidden = true;
-    closeSettingsMenu();
+    themeSettings.closeMenu();
     searchPanel.hidden = false;
     updateSearchControls();
     searchInput.focus();
@@ -1246,171 +1176,50 @@ async function init(): Promise<void> {
   // Memoized evaluator for the left side of a pipe — powers pipe-aware
   // autocomplete (`<path> | <relative query>`). Built once; `data` is stable.
   const scopeResolver = createScopeResolver(data);
-  // The dropdown shows either contextual key suggestions (while typing) or the
-  // recent-query history (when the field is empty) — one mode at a time.
-  type SuggestEntry =
-    | ({ type: "key" } & KeySuggestion)
-    | { type: "recent"; query: string };
-  let suggestItems: SuggestEntry[] = [];
-  let suggestActive = -1;
-  let suggestTokenStart = 0;
-
-  function suggestOpen(): boolean {
-    return !querySuggestList.hidden;
-  }
-
-  function hideSuggest(): void {
-    querySuggestList.hidden = true;
-    querySuggestList.replaceChildren();
-    suggestItems = [];
-    suggestActive = -1;
-  }
-
-  function renderKeyItem(item: HTMLLIElement, entry: { name: string; kind: ValueKind }): void {
-    const name = document.createElement("span");
-    name.className = "jv-query-suggest-name";
-    name.textContent = entry.name;
-    item.appendChild(name);
-    if (entry.kind === "array") {
-      // A badge marks array-valued keys so the user knows to bracket in.
-      const badge = document.createElement("span");
-      badge.className = "jv-query-suggest-badge";
-      badge.textContent = "[ ]";
-      item.appendChild(badge);
-    }
-  }
-
-  function renderRecentItem(item: HTMLLIElement, query: string): void {
-    item.classList.add("jv-query-suggest-recent");
-    const glyph = document.createElement("span");
-    glyph.className = "jv-query-suggest-glyph";
-    glyph.textContent = "↺";
-    glyph.setAttribute("aria-hidden", "true");
-    const text = document.createElement("span");
-    text.className = "jv-query-suggest-name";
-    text.textContent = query;
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "jv-query-suggest-del";
-    del.title = "Remove from history";
-    del.setAttribute("aria-label", `Remove ${query} from history`);
-    del.textContent = "×";
-    del.addEventListener("mousedown", (e) => {
-      // Stop the item's own mousedown (which would run the query) and the
-      // input blur, then drop just this entry.
-      e.preventDefault();
-      e.stopPropagation();
-      removeRecent(query);
-    });
-    item.append(glyph, text, del);
-  }
-
-  function renderSuggest(): void {
-    querySuggestList.replaceChildren();
-    const recentsMode = suggestItems[0]?.type === "recent";
-    if (recentsMode) {
-      const header = document.createElement("li");
-      header.className = "jv-query-suggest-section";
-      header.textContent = "Recent queries";
-      querySuggestList.appendChild(header);
-    }
-    suggestItems.forEach((entry, i) => {
-      const item = document.createElement("li");
-      item.className = "jv-query-suggest-item";
-      if (i === suggestActive) item.classList.add("jv-active");
-      if (entry.type === "recent") renderRecentItem(item, entry.query);
-      else renderKeyItem(item, entry);
-      item.addEventListener("mousedown", (e) => {
-        // mousedown (not click) so the input never loses focus first.
-        e.preventDefault();
-        acceptSuggest(i);
-      });
-      querySuggestList.appendChild(item);
-    });
-    querySuggestList.hidden = suggestItems.length === 0;
-    // replaceChildren() above resets scrollTop, so keyboard nav past the visible
-    // window would leave the highlight off-screen; pull it back into view.
-    querySuggestList
-      .querySelector(".jv-active")
-      ?.scrollIntoView({ block: "nearest" });
-  }
-
-  function updateSuggest(): void {
-    if (keyUniverse === null) return;
-    const value = queryInput.value;
-    // Empty field: surface the recent-query history (when remembering is on).
-    if (value.trim() === "") {
-      if (!rememberQuery || recentQueries.length === 0) {
-        hideSuggest();
-        return;
+  // The dropdown itself: rendering, keyboard navigation and the text it puts
+  // back into the input. It resolves nothing — every row it shows comes from
+  // the provider below.
+  const suggestUi = createQuerySuggestUi({
+    input: queryInput,
+    list: querySuggestList,
+    suggest(value, caret) {
+      // Nothing to offer until the first panel open has built the universe.
+      if (keyUniverse === null) return null;
+      // Empty field: surface the recent-query history (when remembering is on).
+      if (value.trim() === "") {
+        const entries = rememberQuery
+          ? recentQueries.map((query) => ({ type: "recent" as const, query }))
+          : [];
+        return { entries, start: 0 };
       }
-      suggestTokenStart = 0;
-      suggestItems = recentQueries.map((query) => ({ type: "recent", query }));
-      suggestActive = 0;
-      renderSuggest();
-      return;
-    }
-    const caret = queryInput.selectionStart ?? value.length;
-    // Resolve suggestions against the ORIGINAL document, contextual to the path
-    // typed so far; keyUniverse is the flat fallback for unresolvable paths.
-    const { items, start } = suggestAtScoped(
-      value,
-      caret,
-      data,
-      keyUniverse,
-      JMESPATH_FUNCTIONS,
-      scopeResolver
-    );
-    if (items.length === 0) {
-      hideSuggest();
-      return;
-    }
-    suggestTokenStart = start;
-    suggestItems = items.map((i) => ({ type: "key", name: i.name, kind: i.kind }));
-    suggestActive = 0;
-    renderSuggest();
-  }
-
-  function moveSuggest(delta: number): void {
-    if (suggestItems.length === 0) return;
-    suggestActive =
-      (suggestActive + delta + suggestItems.length) % suggestItems.length;
-    renderSuggest();
-  }
-
-  function acceptSuggest(index: number): void {
-    const entry = suggestItems[index];
-    if (entry === undefined) return;
-    if (entry.type === "recent") {
-      // Re-run a past query: fill the input and execute it straight away.
-      queryInput.value = entry.query;
-      const end = entry.query.length;
-      queryInput.setSelectionRange(end, end);
-      hideSuggest();
-      queryInput.focus();
-      void runQueryExpression();
-      return;
-    }
-    const chosen = entry.name;
-    const caret = queryInput.selectionStart ?? queryInput.value.length;
-    const before = queryInput.value.slice(0, suggestTokenStart);
-    const after = queryInput.value.slice(caret);
-    // Functions get an open paren; array keys get a `[*]` projection so the
-    // user can immediately descend (`.`) or swap the `*` for an index/filter;
-    // plain keys go in as-is. The caret lands right after the insertion.
-    let insertion: string;
-    if (JMESPATH_FUNCTIONS.includes(chosen)) insertion = `${chosen}(`;
-    else if (entry.kind === "array") insertion = `${chosen}[*]`;
-    else insertion = chosen;
-    queryInput.value = before + insertion + after;
-    const newCaret = before.length + insertion.length;
-    queryInput.setSelectionRange(newCaret, newCaret);
-    hideSuggest();
-    queryInput.focus();
-  }
+      // Resolve suggestions against the ORIGINAL document, contextual to the path
+      // typed so far; keyUniverse is the flat fallback for unresolvable paths.
+      const { items, start } = suggestAtScoped(
+        value,
+        caret,
+        data,
+        keyUniverse,
+        JMESPATH_FUNCTIONS,
+        scopeResolver
+      );
+      return {
+        entries: items.map((i) => ({ type: "key" as const, name: i.name, kind: i.kind })),
+        start,
+      };
+    },
+    onRemoveRecent(query) {
+      recentQueries = recentQueries.filter((q) => q !== query);
+      persistOriginPrefs();
+    },
+    onAccept(entry) {
+      // Picking a past query re-runs it straight away; a key insertion only
+      // edits the field and waits for Enter.
+      if (entry.type === "recent") void runQueryExpression();
+    },
+  });
 
   // History maintenance: most-recent-first, deduped, capped. Pushing is gated
-  // on the toggle; removing curates the list and re-renders the dropdown.
+  // on the toggle; the dropdown's ✕ curates the list (see onRemoveRecent).
   function pushRecentQuery(expression: string): void {
     if (!rememberQuery) return;
     recentQueries = [
@@ -1419,18 +1228,12 @@ async function init(): Promise<void> {
     ].slice(0, RECENT_QUERY_CAP);
   }
 
-  function removeRecent(query: string): void {
-    recentQueries = recentQueries.filter((q) => q !== query);
-    persistOriginPrefs();
-    updateSuggest();
-  }
-
   function openQueryPanel(): void {
     // Querying produces a tree/table result — no-op in the static text views.
     if (currentView !== "tree" && currentView !== "table") return;
     // Only one popup at a time: close the search panel and settings menu.
     closeSearchPanel();
-    closeSettingsMenu();
+    themeSettings.closeMenu();
     // Build the key universe once, from the ORIGINAL document, on first open.
     if (keyUniverse === null) keyUniverse = collectKeyUniverse(model);
     queryPanel.hidden = false;
@@ -1442,7 +1245,7 @@ async function init(): Promise<void> {
   // chip's ✕ (or an empty query) is what restores the original document.
   function closeQueryPanel(): void {
     queryPanel.hidden = true;
-    hideSuggest();
+    suggestUi.hide();
     showQueryError("");
   }
 
@@ -1543,45 +1346,10 @@ async function init(): Promise<void> {
     seedAndRunQuery(composeNodeQuery(activeQueryResult?.expression ?? null, path));
   });
 
-  queryInput.addEventListener("input", () => {
-    updateSuggest();
-  });
-
-  queryInput.addEventListener("focus", () => {
-    // Surface recent queries when the field is empty; typing switches to keys.
-    if (queryInput.value.trim() === "") updateSuggest();
-  });
-
-  queryInput.addEventListener("blur", () => {
-    hideSuggest();
-  });
-
   queryInput.addEventListener("keydown", (e) => {
     // While the dropdown is open it owns the arrows, Enter/Tab (accept) and
     // Escape (close just the dropdown). Closed, the original bindings stand.
-    if (suggestOpen()) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        moveSuggest(1);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        moveSuggest(-1);
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        acceptSuggest(suggestActive);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        hideSuggest();
-        return;
-      }
-    }
+    if (suggestUi.handleKeyDown(e)) return;
 
     if (e.key === "Enter") {
       e.preventDefault();
@@ -1596,145 +1364,7 @@ async function init(): Promise<void> {
     }
   });
 
-  const settingsToggle = document.getElementById("jv-settings-toggle")!;
-  const settingsMenu = document.getElementById("jv-settings-menu")!;
-  function closeSettingsMenu(): void {
-    settingsMenu.classList.remove("jv-open");
-  }
-  settingsToggle.addEventListener("click", () => {
-    const willOpen = !settingsMenu.classList.contains("jv-open");
-    settingsMenu.classList.toggle("jv-open");
-    // Only one popup at a time: opening settings closes the search/query panels.
-    if (willOpen) {
-      closeSearchPanel();
-      closeQueryPanel();
-    }
-  });
-  document.addEventListener("click", (e) => {
-    if (!(e.target as HTMLElement).closest("#jv-settings")) {
-      closeSettingsMenu();
-    }
-  });
-
-  const rememberQueryCheck = document.getElementById(
-    "jv-remember-query"
-  ) as HTMLInputElement;
-  rememberQueryCheck.checked = rememberQuery;
-  rememberQueryCheck.addEventListener("change", () => {
-    rememberQuery = rememberQueryCheck.checked;
-    void storageSet(REMEMBER_QUERY_KEY, rememberQuery ? "1" : "0");
-    updateSearchControls();
-    // Persist now so toggling on saves the current query and toggling off
-    // drops it immediately.
-    persistOriginPrefs();
-  });
-
-  const exposeDataCheck = document.getElementById(
-    "jv-expose-data"
-  ) as HTMLInputElement;
-  exposeDataCheck.checked = exposeWindowData;
-  exposeDataCheck.addEventListener("change", () => {
-    exposeWindowData = exposeDataCheck.checked;
-    void storageSet(EXPOSE_DATA_KEY, exposeWindowData ? "1" : "0");
-    // Apply live: inject now when enabling; strip the in-DOM copy when disabling.
-    // An already-set window.data in the page's main world clears on reload.
-    if (exposeWindowData) {
-      injectPageData(raw);
-    } else {
-      removeInjectedPageData();
-    }
-  });
-
-  const themeSelect = document.getElementById("jv-theme-select") as HTMLSelectElement;
-  const pasteArea = document.getElementById("jv-theme-paste") as HTMLTextAreaElement;
-  const addThemeBtn = document.getElementById("jv-theme-add")!;
-  const themeError = document.getElementById("jv-theme-error")!;
-  const customList = document.getElementById("jv-custom-list")!;
-
-  function fillThemeGroup(variant: "dark" | "light", label: string): HTMLOptGroupElement {
-    const group = document.createElement("optgroup");
-    group.label = label;
-    for (const scheme of allSchemes().filter((s) => s.variant === variant)) {
-      const option = document.createElement("option");
-      option.value = scheme.id;
-      option.textContent = scheme.name;
-      option.selected = scheme.id === themeState.themeId;
-      group.appendChild(option);
-    }
-    return group;
-  }
-
-  function renderThemeControls(): void {
-    themeSelect.innerHTML = "";
-    themeSelect.appendChild(fillThemeGroup("dark", "Dark"));
-    themeSelect.appendChild(fillThemeGroup("light", "Light"));
-
-    customList.innerHTML = "";
-    for (const scheme of themeState.customs) {
-      const item = document.createElement("li");
-      const label = document.createElement("span");
-      label.textContent = `${scheme.name} (${scheme.variant})`;
-      const deleteBtn = document.createElement("button");
-      deleteBtn.textContent = "✕";
-      deleteBtn.title = `Delete ${scheme.name}`;
-      deleteBtn.addEventListener("click", () => void deleteCustomTheme(scheme.id));
-      item.append(label, deleteBtn);
-      customList.appendChild(item);
-    }
-  }
-
-  async function saveCustomThemes(): Promise<void> {
-    await storageSet("jv-custom-themes", JSON.stringify(themeState.customs));
-  }
-
-  async function deleteCustomTheme(id: string): Promise<void> {
-    themeState.customs = themeState.customs.filter((s) => s.id !== id);
-    if (themeState.themeId === id) {
-      themeState.themeId = DEFAULT_THEME_ID;
-      await storageSet("jv-theme-id", themeState.themeId);
-    }
-    await saveCustomThemes();
-    renderThemeControls();
-    applyTheme();
-  }
-
-  themeSelect.addEventListener("change", () => {
-    themeState.themeId = themeSelect.value;
-    void storageSet("jv-theme-id", themeState.themeId);
-    applyTheme();
-  });
-
-  addThemeBtn.addEventListener("click", () => void addCustomTheme());
-
-  async function addCustomTheme(): Promise<void> {
-    themeError.textContent = "";
-    let scheme: Base16Scheme;
-    try {
-      scheme = parseScheme(pasteArea.value);
-    } catch (error) {
-      themeError.textContent =
-        error instanceof Error ? error.message : "Invalid scheme";
-      return;
-    }
-
-    const existingIds = new Set(allSchemes().map((s) => s.id));
-    let candidateId = scheme.id;
-    let suffix = 2;
-    while (existingIds.has(candidateId)) {
-      candidateId = `${scheme.id}-${suffix++}`;
-    }
-    scheme.id = candidateId;
-
-    themeState.customs.push(scheme);
-    themeState.themeId = scheme.id;
-    await storageSet("jv-theme-id", scheme.id);
-    await saveCustomThemes();
-    pasteArea.value = "";
-    renderThemeControls();
-    applyTheme();
-  }
-
-  renderThemeControls();
+  themeSettings.mountMenu();
 
   // Keyboard shortcuts
   const shortcuts: Record<string, () => void> = {

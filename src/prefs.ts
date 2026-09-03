@@ -1,8 +1,8 @@
 // Per-origin viewer preferences (view mode, last explicitly chosen collapse
 // level) stored in chrome.storage.local under "jv-prefs:<origin>", so
 // revisiting the same API restores the last setup. Theme is intentionally
-// global (see loadThemeState in content.ts) — a person's theme preference
-// isn't origin-specific.
+// global (see loadThemeState in theme-settings.ts) — a person's theme
+// preference isn't origin-specific.
 
 export interface OriginPrefs {
   view?: string;
