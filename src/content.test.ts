@@ -208,6 +208,40 @@ test("restores this origin's saved view and level on load", async () => {
   expect((document.getElementById("jv-level-select") as HTMLSelectElement).value).toBe("1");
 });
 
+test("a stored view name matching a prototype key falls back to the default view", async () => {
+  vi.resetModules();
+  statefulChrome({ [`jv-prefs:${location.origin}`]: { view: "constructor" } });
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: { b: 1 } })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  // "constructor" is inherited, not a view: the tree stays active instead of
+  // every view being hidden behind a name no button can restore.
+  const treeBtn = document.querySelector<HTMLElement>('.jv-view-btn[data-view="tree"]')!;
+  expect(treeBtn.classList.contains("jv-active")).toBe(true);
+  expect(document.getElementById("jv-tree")!.classList.contains("jv-hidden")).toBe(false);
+  // The content area shows the tree rather than nothing at all.
+  expect(document.getElementById("jv-tree")!.childElementCount).toBeGreaterThan(0);
+});
+
+test("a pending debounced pref write is flushed on pagehide", async () => {
+  vi.resetModules();
+  const store = statefulChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // Switch view, then close the tab inside the 250 ms debounce window.
+  document.querySelector<HTMLElement>('.jv-view-btn[data-view="raw"]')!.click();
+  window.dispatchEvent(new PageTransitionEvent("pagehide"));
+
+  expect((store.get(`jv-prefs:${location.origin}`) as { view?: string } | undefined)?.view).toBe(
+    "raw"
+  );
+});
+
 test("theme picker is a single grouped select with no mode toggle", async () => {
   vi.resetModules();
   (globalThis as any).chrome = {

@@ -34,9 +34,10 @@ function normalizeSearchText(value: string): string {
 
 // Compiles a regex query with the case-insensitive flag, returning null when
 // the pattern is invalid so callers can degrade gracefully instead of throwing.
-// The search index stores text lowercased and truncated to 200 chars (see
-// SEARCH_VALUE_PREVIEW_LIMIT in tree-model.ts), so a regex only ever sees that
-// truncated, lowercased text.
+// Values are indexed lowercased and truncated to 200 chars (see
+// SEARCH_VALUE_PREVIEW_LIMIT in tree-model.ts), but the compiled regex is not
+// limited to that: long strings are also tested against the untruncated
+// `rawStringValue`, and keys and paths are never truncated.
 export function compileSearchRegex(query: string): RegExp | null {
   try {
     return new RegExp(query, "i");

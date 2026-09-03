@@ -6,6 +6,7 @@ import {
   type DelimitedFormat,
   type DelimitedTable,
 } from "./csv";
+import { truncateCodePoints } from "./truncate";
 
 const EXPORT_FILENAMES: Record<DelimitedFormat, string> = {
   csv: "json-bonsai-export.csv",
@@ -109,12 +110,38 @@ function typeRank(value: JsonValue): number {
   return 4; // objects and arrays keep their relative order
 }
 
-function compareValues(a: JsonValue, b: JsonValue): number {
+const EXACT_INTEGER_TOKEN = /^-?\d+$/;
+
+/**
+ * Orders two number tokens that round to the same double, so the sort matches
+ * the exact digits the cells display. BigInt covers the integer tokens that
+ * actually reach here (ids past 2^53), signs included; a fraction or an
+ * exponent stays a tie, exactly as it was before.
+ */
+function compareExactNumbers(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!EXACT_INTEGER_TOKEN.test(a) || !EXACT_INTEGER_TOKEN.test(b)) return 0;
+  const bigA = BigInt(a);
+  const bigB = BigInt(b);
+  return bigA === bigB ? 0 : bigA < bigB ? -1 : 1;
+}
+
+function compareValues(
+  a: JsonValue,
+  b: JsonValue,
+  exactA?: string,
+  exactB?: string
+): number {
   const rankA = typeRank(a);
   const rankB = typeRank(b);
   if (rankA !== rankB) return rankA - rankB;
   if (typeof a === "number" && typeof b === "number") {
-    return a === b ? 0 : a < b ? -1 : 1;
+    if (a !== b) return a < b ? -1 : 1;
+    // Rounding is monotonic, so differing doubles already answered. Equal ones
+    // may still be distinct source numbers: fall back to the exact text, or to
+    // the double's own digits for a cell that never lost precision.
+    if (exactA === undefined && exactB === undefined) return 0;
+    return compareExactNumbers(exactA ?? String(a), exactB ?? String(b));
   }
   if (typeof a === "string" && typeof b === "string") {
     return a.localeCompare(b, undefined, { numeric: true });
@@ -132,7 +159,8 @@ function compareValues(a: JsonValue, b: JsonValue): number {
 export function sortRowIndices(
   rows: JsonValue[],
   column: string | null,
-  direction: SortDirection
+  direction: SortDirection,
+  exactNumbers?: ExactNumberMap | null
 ): number[] {
   const indices = rows.map((_, i) => i);
   if (column === null || direction === null) return indices;
@@ -147,7 +175,16 @@ export function sortRowIndices(
     if (missingA || missingB) {
       return missingA === missingB ? 0 : missingA ? 1 : -1;
     }
-    return compareValues(valueA, valueB) * dir;
+    // Both rows are plain objects past the missing check, so they are valid
+    // holders for the exact-number map.
+    return (
+      compareValues(
+        valueA,
+        valueB,
+        exactNumbers?.get(rowA as object)?.get(column),
+        exactNumbers?.get(rowB as object)?.get(column)
+      ) * dir
+    );
   });
   return indices;
 }
@@ -162,7 +199,9 @@ function containerPreview(value: JsonValue[] | { [key: string]: JsonValue }): st
 }
 
 function truncateCell(text: string): string {
-  return text.length > CELL_TEXT_MAX ? `${text.slice(0, CELL_TEXT_MAX)}…` : text;
+  return text.length > CELL_TEXT_MAX
+    ? `${truncateCodePoints(text, CELL_TEXT_MAX)}…`
+    : text;
 }
 
 function cellText(value: JsonValue | undefined): string {
@@ -594,7 +633,7 @@ export function createTableView(
       sortColumn = column;
       sortDirection = "asc";
     }
-    baseOrder = sortRowIndices(data, sortColumn, sortDirection);
+    baseOrder = sortRowIndices(data, sortColumn, sortDirection, exactNumbers);
     updateSortIndicators();
     applyFilter();
   });

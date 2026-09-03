@@ -5,6 +5,7 @@ import {
   isContainerNode,
 } from "./tree-model";
 import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
+import { truncateCodePoints } from "./truncate";
 
 const VIRTUAL_ROW_HEIGHT = 24;
 const VIRTUAL_OVERSCAN = 30;
@@ -12,6 +13,30 @@ const PREFIX_SUM_FANOUT_THRESHOLD = 1024;
 const MAX_PHYSICAL_HEIGHT = 1_000_000;
 
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
+
+// The spacer is capped at MAX_PHYSICAL_HEIGHT, so past ~41.6k rows it stands
+// compressed by this factor while pooled rows still render at native height.
+function heightScale(totalRows: number): number {
+  const virtualHeight = totalRows * VIRTUAL_ROW_HEIGHT;
+  return virtualHeight > MAX_PHYSICAL_HEIGHT
+    ? virtualHeight / MAX_PHYSICAL_HEIGHT
+    : 1;
+}
+
+// Rows kept in the pool either side of the viewport. A compressed spacer turns
+// one pixel of scroll into `scale` rows, so a full pad would cost `scale`
+// times the DOM to cover the same fraction of a gesture — shrink it instead.
+// But never below one pixel's worth of rows: browsers snap scrollTop to whole
+// device pixels, so a scrollToNode landing misses its target by up to that
+// many rows and the pad is what absorbs the miss. Still small: 11 rows either
+// side at scale 240 (10M expanded rows), for 55 pooled rows in all.
+function overscanRows(scale: number): number {
+  if (scale === 1) return VIRTUAL_OVERSCAN;
+  return Math.max(
+    Math.round(VIRTUAL_OVERSCAN / scale),
+    Math.ceil(scale / VIRTUAL_ROW_HEIGHT)
+  );
+}
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
@@ -137,6 +162,12 @@ function createPoolRow(): PoolRow {
 const URL_DETECT_MAX = 512;
 const STRING_DISPLAY_MAX = 500;
 
+// JSON string escaping without the enclosing quotes, so an embedded quote or
+// control character reads as itself instead of ending the displayed string.
+function escapeString(value: string): string {
+  return JSON.stringify(value).slice(1, -1);
+}
+
 function applyLeafValue(
   span: HTMLSpanElement,
   value: JsonValue,
@@ -151,13 +182,18 @@ function applyLeafValue(
       a.className = "jv-link";
       a.rel = "noopener noreferrer";
       a.target = "_blank";
+      // The href stays raw so the link still navigates; only the text shown
+      // between the quotes is escaped.
       a.href = value;
-      a.textContent = value;
+      a.textContent = escapeString(value);
       span.replaceChildren('"', a, '"');
     } else if (value.length > STRING_DISPLAY_MAX) {
-      span.textContent = `"${value.slice(0, STRING_DISPLAY_MAX)}…" (${value.length.toLocaleString()} chars)`;
+      // Cut the source, then escape. The other order would let the cut land
+      // inside an escape sequence, and the count reports source characters.
+      const head = escapeString(truncateCodePoints(value, STRING_DISPLAY_MAX));
+      span.textContent = `"${head}…" (${value.length.toLocaleString()} chars)`;
     } else {
-      span.textContent = `"${value}"`;
+      span.textContent = `"${escapeString(value)}"`;
     }
     return;
   }
@@ -221,7 +257,7 @@ function applyPoolRow(row: PoolRow, node: JsonNode, isExpanded: boolean): void {
   } else {
     row.keySpan.textContent = node.isArrayElement
       ? String(node.key)
-      : `"${node.key}"`;
+      : `"${escapeString(String(node.key))}"`;
     row.keySpan.hidden = false;
     row.keyPunct.hidden = false;
   }
@@ -544,18 +580,14 @@ export function createTreeView(
     const index = rowIndexOf(nodeId);
     if (index < 0) return;
     const viewportHeight = scrollContainer.clientHeight || window.innerHeight || 800;
-    const totalRows = totalVisibleRows();
-    const virtualHeight = totalRows * VIRTUAL_ROW_HEIGHT;
-    const physicalHeight = Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
-    const scale =
-      virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
+    const scale = heightScale(totalVisibleRows());
     // When scale > 1 the spacer is compressed but rows render at native height
     // via translateY(offsetTop). Solve renderWindow's layer formula for the
     // scrollTop that puts row `index` at viewport center.
     const overscanComp =
       scale === 1
         ? 0
-        : (VIRTUAL_OVERSCAN * VIRTUAL_ROW_HEIGHT * (scale - 1)) /
+        : (overscanRows(scale) * VIRTUAL_ROW_HEIGHT * (scale - 1)) /
           (scale * scale);
     const targetTop = Math.max(
       0,
@@ -588,8 +620,7 @@ export function createTreeView(
     const physicalHeight = Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
     spacer.style.height = `${physicalHeight}px`;
 
-    const scale =
-      virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
+    const scale = heightScale(totalRows);
 
     // Clamp only the local value used for window math. The browser owns the
     // real scroll bounds — its scrollable range includes container padding,
@@ -601,15 +632,20 @@ export function createTreeView(
     }
 
     const virtualScrollTop = scrollTop * scale;
-    const virtualViewportHeight = viewportHeight * scale;
+    const overscan = overscanRows(scale);
     const startIndex = Math.max(
       0,
-      Math.floor(virtualScrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN
+      Math.floor(virtualScrollTop / VIRTUAL_ROW_HEIGHT) - overscan
     );
+    // Scroll position maps through `scale`, but the window's height does not:
+    // pooled rows render at native height, so one viewport holds
+    // viewportHeight / VIRTUAL_ROW_HEIGHT of them however compressed the
+    // spacer is. Sizing this by viewport × scale built thousands of rows a
+    // frame for the few dozen on screen.
     const endIndex = Math.min(
       totalRows,
-      Math.ceil((virtualScrollTop + virtualViewportHeight) / VIRTUAL_ROW_HEIGHT) +
-        VIRTUAL_OVERSCAN
+      Math.ceil((virtualScrollTop + viewportHeight) / VIRTUAL_ROW_HEIGHT) +
+        overscan
     );
     const offsetTop = (startIndex * VIRTUAL_ROW_HEIGHT) / scale;
 
@@ -631,10 +667,14 @@ export function createTreeView(
     applySearchClasses();
 
     if (pendingScrollNodeId !== null) {
-      if (!rowByNodeId.has(pendingScrollNodeId)) {
-        scrollToNode(pendingScrollNodeId);
-      }
+      const retryNodeId = pendingScrollNodeId;
+      // Clear before retrying, not after: scrolling can drive another render
+      // that arms a fresh attempt, and clearing afterwards would wipe the
+      // flag that attempt had just set — leaving exactly one retry.
       pendingScrollNodeId = null;
+      if (!rowByNodeId.has(retryNodeId)) {
+        scrollToNode(retryNodeId);
+      }
     }
 
     options?.onRenderStateChange?.(

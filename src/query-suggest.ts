@@ -303,6 +303,49 @@ function parseQuotedKey(inner: string): string | null {
   }
 }
 
+// Index of the `"` closing the quoted identifier opening at `open`, or -1 when
+// it is unterminated. Same escape handling as closingBracket.
+function closingQuote(s: string, open: number): number {
+  for (let i = open + 1; i < s.length; i += 1) {
+    if (s[i] === "\\") i += 1;
+    else if (s[i] === '"') return i;
+  }
+  return -1;
+}
+
+// A bracket segment that is a slice, not an index: `0:2`, `1:`, `:1`, `::-1`.
+const SLICE = /^-?\d*:-?\d*(?::-?\d*)?$/;
+
+// Apply a JMESPath slice, which follows Python's rules. Done for real rather
+// than approximated by the whole array, so the keys we suggest come only from
+// the elements the slice actually yields. Null when the step is 0 (an error in
+// JMESPath too).
+function sliceArray(arr: unknown[], spec: string): unknown[] | null {
+  const parts = spec.split(":");
+  const num = (text: string | undefined, fallback: number): number =>
+    text === undefined || text === "" ? fallback : Number(text);
+  const step = num(parts[2], 1);
+  if (step === 0) return null;
+  const len = arr.length;
+  // Negative bounds count from the end; then clamp into the valid range.
+  const norm = (v: number): number => (v < 0 ? v + len : v);
+  const clamp = (v: number, lo: number, hi: number): number =>
+    Math.min(Math.max(v, lo), hi);
+  const start =
+    step > 0
+      ? clamp(norm(num(parts[0], 0)), 0, len)
+      : clamp(norm(num(parts[0], len - 1)), -1, len - 1);
+  const stop =
+    step > 0
+      ? clamp(norm(num(parts[1], len)), 0, len)
+      : clamp(norm(num(parts[1], -1 - len)), -1, len - 1);
+  const out: unknown[] = [];
+  for (let i = start; step > 0 ? i < stop : i > stop; i += step) {
+    out.push(arr[i]);
+  }
+  return out;
+}
+
 // Walk a simple path expression against `data`. Returns the value at the end
 // (an array stays an array — a live projection context), or null when the path
 // uses a construct we don't resolve.
@@ -317,9 +360,21 @@ function resolveContext(path: string, data: unknown): { value: unknown } | null 
       i += 1;
       continue;
     }
-    if (ch === "[") {
-      const close = s.indexOf("]", i);
+    if (ch === '"') {
+      // Quoted member: `."my key"` — the JMESPath quoted-identifier form, which
+      // is JSON string syntax, so parseQuotedKey reads it.
+      const close = closingQuote(s, i);
       if (close === -1) return null;
+      const key = parseQuotedKey(s.slice(i, close + 1));
+      if (key === null) return null;
+      node = memberValue(node, key);
+      i = close + 1;
+      continue;
+    }
+    if (ch === "[") {
+      // Quote-aware, so a `]` inside a quoted key does not end the segment.
+      const close = closingBracket(s, i);
+      if (close >= s.length) return null;
       const inner = s.slice(i + 1, close).trim();
       if (inner === "*" || inner === "" || inner[0] === "?") {
         if (!Array.isArray(node)) return null;
@@ -330,7 +385,15 @@ function resolveContext(path: string, data: unknown): { value: unknown } | null 
         node = memberValue(node, key);
       } else if (/^-?\d+$/.test(inner)) {
         if (!Array.isArray(node)) return null;
-        node = node[Number(inner)];
+        const index = Number(inner);
+        node = node[index < 0 ? node.length + index : index];
+      } else if (SLICE.test(inner)) {
+        // A slice yields a list, so it stays a projection context like `[*]`,
+        // narrowed to the elements the slice selects.
+        if (!Array.isArray(node)) return null;
+        const sliced = sliceArray(node, inner);
+        if (sliced === null) return null;
+        node = sliced;
       } else {
         return null;
       }
@@ -349,15 +412,40 @@ function resolveContext(path: string, data: unknown): { value: unknown } | null 
   return { value: node };
 }
 
+// Closing-`"` index → its opening-`"` index, over text[0, end). A backward scan
+// cannot tell an opening quote from a closing one, so pathStart uses this to
+// jump a quoted segment (spaces and all) in one step.
+function quoteSpans(text: string, end: number): Map<number, number> {
+  const spans = new Map<number, number>();
+  for (let i = 0; i < end; i += 1) {
+    if (text[i] !== '"') continue;
+    const close = closingQuote(text, i);
+    // Unterminated, or closing past `end`: no further span starts before it.
+    if (close === -1 || close >= end) break;
+    spans.set(close, i);
+    i = close;
+  }
+  return spans;
+}
+
 // Start of the contiguous path expression ending just before `end`. Consumes
-// identifier chars, dots, `@`, quotes, and balanced [...] groups (so filter
-// predicates ride along); stops at the first non-path char (space, `(`, `|`…).
+// identifier chars, dots, `@`, quoted segments, and balanced [...] groups (so
+// filter predicates ride along); stops at the first non-path char (space, `(`,
+// `|`…). Quoted segments are jumped whole at bracket depth 0 — inside brackets
+// the depth walk already swallows them, and jumping there would mis-read a `"`
+// living in a raw-string literal.
 function pathStart(text: string, end: number): number {
+  const spans = quoteSpans(text, end);
   let i = end;
   let depth = 0;
   while (i > 0) {
     const c = text[i - 1];
-    if (c === "]") {
+    if (c === '"' && depth === 0) {
+      const open = spans.get(i - 1);
+      // An opening quote here means the caret sits inside a string: not a path.
+      if (open === undefined) break;
+      i = open;
+    } else if (c === "]") {
       depth += 1;
       i -= 1;
     } else if (c === "[") {
@@ -366,7 +454,7 @@ function pathStart(text: string, end: number): number {
       i -= 1;
     } else if (depth > 0) {
       i -= 1;
-    } else if (IDENTIFIER_CHAR.test(c) || c === "." || c === "@" || c === '"') {
+    } else if (IDENTIFIER_CHAR.test(c) || c === "." || c === "@") {
       i -= 1;
     } else {
       break;

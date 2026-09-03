@@ -35,9 +35,9 @@ afterEach(() => {
 
 test("prefs round-trip: written prefs load back for the same origin", async () => {
   installMockStorage();
-  const write = createOriginPrefsWriter("https://api.example.com");
+  const writer = createOriginPrefsWriter("https://api.example.com");
 
-  write({ view: "raw", level: 3 });
+  writer.save({ view: "raw", level: 3 });
   await vi.runAllTimersAsync();
 
   expect(await loadOriginPrefs("https://api.example.com")).toEqual({
@@ -48,9 +48,9 @@ test("prefs round-trip: written prefs load back for the same origin", async () =
 
 test("query round-trips and a non-string query is ignored", async () => {
   const store = installMockStorage();
-  const write = createOriginPrefsWriter("https://api.example.com");
+  const writer = createOriginPrefsWriter("https://api.example.com");
 
-  write({ view: "tree", query: "users[*].name" });
+  writer.save({ view: "tree", query: "users[*].name" });
   await vi.runAllTimersAsync();
   expect(await loadOriginPrefs("https://api.example.com")).toEqual({
     view: "tree",
@@ -66,9 +66,9 @@ test("query round-trips and a non-string query is ignored", async () => {
 
 test("recentQueries round-trip; non-string entries are filtered out", async () => {
   const store = installMockStorage();
-  const write = createOriginPrefsWriter("https://api.example.com");
+  const writer = createOriginPrefsWriter("https://api.example.com");
 
-  write({ view: "tree", recentQueries: ["a", "b[*].c"] });
+  writer.save({ view: "tree", recentQueries: ["a", "b[*].c"] });
   await vi.runAllTimersAsync();
   expect(await loadOriginPrefs("https://api.example.com")).toEqual({
     view: "tree",
@@ -88,9 +88,9 @@ test("recentQueries round-trip; non-string entries are filtered out", async () =
 
 test("recentSearches round-trip; non-string entries are filtered out", async () => {
   const store = installMockStorage();
-  const write = createOriginPrefsWriter("https://api.example.com");
+  const writer = createOriginPrefsWriter("https://api.example.com");
 
-  write({ view: "tree", recentSearches: ["ada", "grace"] });
+  writer.save({ view: "tree", recentSearches: ["ada", "grace"] });
   await vi.runAllTimersAsync();
   expect(await loadOriginPrefs("https://api.example.com")).toEqual({
     view: "tree",
@@ -109,11 +109,11 @@ test("recentSearches round-trip; non-string entries are filtered out", async () 
 
 test("prefs are keyed per origin", async () => {
   const store = installMockStorage();
-  const writeA = createOriginPrefsWriter("https://a.example.com");
-  const writeB = createOriginPrefsWriter("https://b.example.com");
+  const writerA = createOriginPrefsWriter("https://a.example.com");
+  const writerB = createOriginPrefsWriter("https://b.example.com");
 
-  writeA({ view: "schema", level: "all" });
-  writeB({ view: "tree", level: 2 });
+  writerA.save({ view: "schema", level: "all" });
+  writerB.save({ view: "tree", level: 2 });
   await vi.runAllTimersAsync();
 
   expect(Object.keys(store).sort()).toEqual([
@@ -135,18 +135,18 @@ test("missing storage API degrades silently", async () => {
 
   expect(await loadOriginPrefs("https://api.example.com")).toEqual({});
 
-  const write = createOriginPrefsWriter("https://api.example.com");
-  expect(() => write({ view: "raw" })).not.toThrow();
+  const writer = createOriginPrefsWriter("https://api.example.com");
+  expect(() => writer.save({ view: "raw" })).not.toThrow();
   await vi.runAllTimersAsync();
 });
 
 test("rapid writes are debounced into the last payload", async () => {
   installMockStorage();
-  const write = createOriginPrefsWriter("https://api.example.com");
+  const writer = createOriginPrefsWriter("https://api.example.com");
 
-  write({ view: "formatted" });
-  write({ view: "raw" });
-  write({ view: "raw", level: 4 });
+  writer.save({ view: "formatted" });
+  writer.save({ view: "raw" });
+  writer.save({ view: "raw", level: 4 });
   await vi.runAllTimersAsync();
 
   expect(mockSet()).toHaveBeenCalledTimes(1);
@@ -156,12 +156,47 @@ test("rapid writes are debounced into the last payload", async () => {
   });
 });
 
+test("flush writes the pending payload immediately and disarms the timer", async () => {
+  installMockStorage();
+  const writer = createOriginPrefsWriter("https://api.example.com");
+
+  writer.save({ view: "raw", level: 2 });
+  writer.flush();
+
+  // The write landed without waiting out the debounce...
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "raw",
+    level: 2,
+  });
+
+  // ...and the cancelled timer doesn't fire a second one afterwards.
+  await vi.runAllTimersAsync();
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+});
+
+test("flush with nothing pending is a no-op", async () => {
+  installMockStorage();
+  const writer = createOriginPrefsWriter("https://api.example.com");
+
+  // Never written to.
+  writer.flush();
+  expect(mockSet()).not.toHaveBeenCalled();
+
+  // Already settled, so there is nothing left to flush.
+  writer.save({ view: "raw" });
+  await vi.runAllTimersAsync();
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+  writer.flush();
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+});
+
 test("reapplying the loaded prefs does not write them back", async () => {
   installMockStorage();
   const initial = { view: "raw", level: 3 } as const;
-  const write = createOriginPrefsWriter("https://api.example.com", initial);
+  const writer = createOriginPrefsWriter("https://api.example.com", initial);
 
-  write({ view: "raw", level: 3 });
+  writer.save({ view: "raw", level: 3 });
   await vi.runAllTimersAsync();
 
   expect(mockSet()).not.toHaveBeenCalled();

@@ -213,6 +213,71 @@ describe("suggestAt", () => {
   });
 });
 
+// Valid JMESPath the context resolver used to walk away from: negative
+// indices, slices and dot-quoted member access. Each must resolve to the right
+// node; anything still unresolvable keeps falling back to the flat universe.
+describe("suggestAt on negative indices, slices and quoted members (item 11)", () => {
+  const doc = {
+    users: [
+      { name: "Ada", role: "admin" },
+      { name: "Grace", role: "user" },
+      { last: true },
+    ],
+    "my key": { inner: 1 },
+    settings: { "my key": { deep: 1 }, 'he"llo]': { odd: 1 } },
+    count: 2,
+  };
+  const UNIVERSE = ["U_one", "U_two"];
+  const names = (text: string, caret = text.length) =>
+    suggestAt(text, caret, doc, UNIVERSE, JMESPATH_FUNCTIONS).items.map(
+      (i) => i.name
+    );
+
+  test("a negative index resolves from the end of the array", () => {
+    expect(names("users[-1].")).toEqual(["last"]);
+    expect(names("users[-3].")).toEqual(["name", "role"]);
+  });
+
+  test("an out-of-range negative index offers nothing", () => {
+    expect(names("users[-9].")).toEqual([]);
+  });
+
+  test("a slice lists the keys of the sliced elements only", () => {
+    expect(names("users[0:2].")).toEqual(["name", "role"]);
+    expect(names("users[1:].")).toEqual(["name", "role", "last"]);
+    expect(names("users[:1].")).toEqual(["name", "role"]);
+    expect(names("users[::2].")).toEqual(["name", "role", "last"]);
+    expect(names("users[::-1].")).toEqual(["last", "name", "role"]);
+  });
+
+  test("a slice then a prefix filters the sliced element keys", () => {
+    expect(names("users[0:2].ro")).toEqual(["role"]);
+  });
+
+  test("a slice of a non-array stays unresolvable (flat universe)", () => {
+    expect(names("settings[0:2].")).toEqual(["U_one", "U_two"]);
+  });
+
+  test("dot-quoted member access resolves to that key's value", () => {
+    expect(names('settings."my key".')).toEqual(["deep"]);
+    expect(names('settings."my key".de')).toEqual(["deep"]);
+  });
+
+  test("a leading quoted key resolves against the document root", () => {
+    expect(names('"my key".')).toEqual(["inner"]);
+  });
+
+  test("a quoted key carrying an escaped quote and a bracket resolves", () => {
+    expect(names('settings."he\\"llo]".')).toEqual(["odd"]);
+    // Bracket form of the same key: the `]` inside it must not end the segment.
+    expect(names('settings["he\\"llo]"].')).toEqual(["odd"]);
+  });
+
+  test("a quoted member of a scalar offers nothing", () => {
+    expect(names('count."my key".')).toEqual([]);
+  });
+});
+
 describe("toJmespath", () => {
   test("strips the data root from a dotted path", () => {
     expect(toJmespath("data.users[3].name")).toBe("users[3].name");

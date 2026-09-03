@@ -233,7 +233,7 @@ async function init(): Promise<void> {
     customs: [],
   });
   const originPrefs = await loadOriginPrefs(location.origin);
-  const saveOriginPrefs = createOriginPrefsWriter(location.origin, originPrefs);
+  const originPrefsWriter = createOriginPrefsWriter(location.origin, originPrefs);
   // Whether to remember the last query per origin. Global (like theme), since
   // it's a personal preference, not a property of any one document. On by
   // default; only an explicit "0" (the user opted out) disables it.
@@ -542,7 +542,7 @@ async function init(): Promise<void> {
       if (recentQueries.length > 0) prefs.recentQueries = recentQueries.slice();
       if (recentSearches.length > 0) prefs.recentSearches = recentSearches.slice();
     }
-    saveOriginPrefs(prefs);
+    originPrefsWriter.save(prefs);
   }
 
   // (Re)builds the tree view, level buttons and node stats for the given
@@ -602,9 +602,12 @@ async function init(): Promise<void> {
   // view never flashes. Rendering skips while the tree is hidden; setView
   // refreshes it on the way back. A saved "table" only applies if this
   // document is tabular — the same origin can serve non-array payloads.
+  // Own keys only: `in` would also accept "constructor" and friends, and a
+  // corrupted stored value would then hide every view behind a name no button
+  // can restore.
   if (
     originPrefs.view !== undefined &&
-    originPrefs.view in views &&
+    Object.hasOwn(views, originPrefs.view) &&
     (originPrefs.view !== "table" || checkTableEligibility(data).eligible)
   ) {
     setView(originPrefs.view);
@@ -1771,6 +1774,8 @@ async function init(): Promise<void> {
     pathCopyBtn
   );
   window.addEventListener("pagehide", () => {
+    // A pref changed in the last 250 ms is still sitting in the debounce.
+    originPrefsWriter.flush();
     originalSearchIndex?.dispose();
     resultSearchIndex?.dispose();
   });
