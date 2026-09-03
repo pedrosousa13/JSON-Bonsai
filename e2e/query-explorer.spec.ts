@@ -141,3 +141,34 @@ test("recent queries surface in the dropdown and re-run on pick", async () => {
 
   await page.click("#jv-query-close");
 });
+
+test("an active query drives the raw view, its copy, and clears back", async () => {
+  // Run a fresh query from the tree, where the query control is enabled.
+  await page.click('.jv-view-btn[data-view="tree"]');
+  if (await page.locator("#jv-query-panel").isHidden()) {
+    await page.click("#jv-query-toggle");
+  }
+  await page.fill("#jv-query-input", "users[0].name");
+  await page.locator("#jv-query-input").press("Escape"); // close key suggestions
+  await page.click("#jv-query-run");
+  await expect(page.locator("#jv-query-chip-text")).toHaveText("users[0].name");
+  await page.click("#jv-query-close");
+
+  // Raw shows a serialization of the result, says so, and copies it.
+  await page.click('.jv-view-btn[data-view="raw"]');
+  await expect(page.locator("#jv-raw")).toHaveText('"Ada"');
+  await expect(page.locator("#jv-raw-note")).toBeVisible();
+  await page.click("#jv-copy");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('"Ada"');
+
+  // Formatted agrees, and the chip reads the same outside the tree.
+  await page.click('.jv-view-btn[data-view="formatted"]');
+  await expect(page.locator("#jv-formatted")).toHaveText('"Ada"');
+  await expect(page.locator("#jv-query-chip-text")).toHaveText("users[0].name");
+
+  // Clearing the chip puts the document's own source text back in raw.
+  await page.click("#jv-query-chip-clear");
+  await page.click('.jv-view-btn[data-view="raw"]');
+  await expect(page.locator("#jv-raw")).toHaveText(payload);
+  await expect(page.locator("#jv-raw-note")).toBeHidden();
+});

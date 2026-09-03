@@ -223,14 +223,6 @@ async function init(): Promise<void> {
   if (!result) return;
 
   const { data, raw, exactNumbers, isNdjson } = result;
-  let prettyRaw: string | null = null;
-
-  function getPrettyRaw(): string {
-    if (prettyRaw === null) {
-      prettyRaw = stringifyWithExactNumbers(data, exactNumbers, 2);
-    }
-    return prettyRaw;
-  }
 
   // Every fallible read runs before the page is cleared, and each one falls
   // back to the default it would get on a fresh profile. Deliberately still
@@ -331,6 +323,7 @@ async function init(): Promise<void> {
       <div id="jv-tree"></div>
       <div id="jv-table"></div>
       <pre id="jv-formatted"></pre>
+      <div id="jv-raw-note" hidden>Query result — serialized JSON, not the document's source text.</div>
       <pre id="jv-raw"></pre>
       <pre id="jv-schema"></pre>
     </div>
@@ -369,6 +362,7 @@ async function init(): Promise<void> {
   const tableEl = document.getElementById("jv-table")!;
   const formattedEl = document.getElementById("jv-formatted")!;
   const rawEl = document.getElementById("jv-raw")!;
+  const rawNoteEl = document.getElementById("jv-raw-note")!;
   const schemaEl = document.getElementById("jv-schema")!;
   const pathDisplay = document.getElementById("jv-path-display")!;
   const pathText = document.getElementById("jv-path-text")!;
@@ -426,8 +420,42 @@ async function init(): Promise<void> {
   let activeQueryResult: { expression: string; result: JsonValue } | null = null;
   let tableView: TableViewController | null = null;
 
+  // The one document every view renders: the query result while a query is
+  // active, the parsed document otherwise. The tree, the table, the three
+  // text views and Copy all read from here, so a query can never leave one
+  // view showing the original.
   function currentDocument(): JsonValue {
     return activeQueryResult !== null ? activeQueryResult.result : data;
+  }
+
+  // The text views render (and copy) a string, not a value. Each one is
+  // rendered once per document and kept here: serializing is not cheap, and
+  // the view body and the Copy button must show the same bytes.
+  const TEXT_VIEWS = ["formatted", "raw", "schema"] as const;
+  type TextView = (typeof TEXT_VIEWS)[number];
+  let textCache: Partial<Record<TextView, string>> = {};
+
+  function renderTextView(name: TextView): string {
+    // Query results reuse holders from `data` wherever JMESPath passed a
+    // value through, so exact number tokens survive into the result.
+    if (name === "formatted") {
+      return stringifyWithExactNumbers(currentDocument(), exactNumbers, 2);
+    }
+    if (name === "schema") return toJsonSchema(currentDocument());
+    // Raw shows the response's own bytes — re-serializing the original would
+    // silently reformat the user's file. A query result has no source text of
+    // its own, so it is serialized instead, and #jv-raw-note says so.
+    return activeQueryResult === null
+      ? raw
+      : stringifyWithExactNumbers(activeQueryResult.result, exactNumbers);
+  }
+
+  function textView(name: TextView): string {
+    return (textCache[name] ??= renderTextView(name));
+  }
+
+  function isTextView(name: string): name is TextView {
+    return (TEXT_VIEWS as readonly string[]).includes(name);
   }
 
   // Render-status / large-doc notice lives in a dismissible bar below the
@@ -657,14 +685,20 @@ async function init(): Promise<void> {
         exactNumbers,
       });
     } else if (name === "formatted") {
-      formattedEl.textContent = getPrettyRaw();
+      formattedEl.textContent = textView("formatted");
     } else if (name === "raw") {
-      rawEl.textContent = raw;
+      rawEl.textContent = textView("raw");
     } else if (name === "schema") {
-      schemaEl.textContent = toJsonSchema(data);
+      schemaEl.textContent = textView("schema");
     }
 
     loadedViews.add(name);
+  }
+
+  // The raw view's "this is a serialization" note, shown only where it is
+  // true: the raw view, with a query active.
+  function updateRawNote(): void {
+    rawNoteEl.hidden = !(currentView === "raw" && activeQueryResult !== null);
   }
 
   function copyLabelText(): string {
@@ -676,6 +710,7 @@ async function init(): Promise<void> {
     viewScrollTops[currentView] = content.scrollTop;
     currentView = name;
     ensureViewContent(name);
+    updateRawNote();
     copyLabel.textContent = copyLabelText();
     viewBtns.forEach((btn) => btn.classList.toggle("jv-active", btn.dataset.view === name));
     Object.entries(views).forEach(([key, el]) => {
@@ -744,6 +779,24 @@ async function init(): Promise<void> {
     }
   }
 
+  // Single entry point for a document swap (a query ran, or the chip was
+  // cleared): every view renders currentDocument(), so all of them drop what
+  // they cached and whichever one is on screen re-renders. The tree is not
+  // here — its callers remount it with the model they just built.
+  function refreshViewsForDocument(): void {
+    textCache = {};
+    for (const name of TEXT_VIEWS) {
+      loadedViews.delete(name);
+      delete viewScrollTops[name];
+    }
+    updateRawNote();
+    if (isTextView(currentView)) {
+      content.scrollTop = 0;
+      ensureViewContent(currentView);
+    }
+    refreshTableForDocument();
+  }
+
   // The table shows whichever document is on screen, so a query swap (or
   // restore) rebuilds it and re-checks whether the new root is tabular.
   function refreshTableForDocument(): void {
@@ -768,15 +821,11 @@ async function init(): Promise<void> {
 
   // Copy
   function copyJson(): void {
-    const contentToCopy =
-      currentView === "schema"
-        ? schemaEl.textContent!
-        : currentView === "raw"
-          ? raw
-          : (currentView === "tree" || currentView === "table") &&
-              activeQueryResult !== null
-            ? stringifyWithExactNumbers(activeQueryResult.result, exactNumbers, 2)
-            : getPrettyRaw();
+    // Each view copies exactly what it shows. Tree and table have no text of
+    // their own, so they copy the formatted rendering of the same document.
+    const contentToCopy = isTextView(currentView)
+      ? textView(currentView)
+      : textView("formatted");
 
     navigator.clipboard.writeText(contentToCopy).then(() => {
       copyLabel.textContent = "Copied!";
@@ -1395,7 +1444,7 @@ async function init(): Promise<void> {
     resultSearchIndex?.dispose();
     resultSearchIndex = null;
     await mountTree(model, originalSearchIndex!);
-    refreshTableForDocument();
+    refreshViewsForDocument();
     // Cleared query: drop it from this origin's saved prefs.
     persistOriginPrefs();
 
@@ -1427,7 +1476,7 @@ async function init(): Promise<void> {
     resultSearchIndex?.dispose();
     resultSearchIndex = createLocalTreeSearchIndex(resultModel);
     await mountTree(resultModel, resultSearchIndex);
-    refreshTableForDocument();
+    refreshViewsForDocument();
     // Remember this query (and add it to history) for the origin when on.
     pushRecentQuery(expression);
     persistOriginPrefs();
