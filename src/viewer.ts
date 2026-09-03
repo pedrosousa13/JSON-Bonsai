@@ -11,6 +11,7 @@ import {
 } from "./tree-search";
 import { truncateCodePoints } from "./truncate";
 import { flashLabel, FLASH_LABEL_MS } from "./flash-label";
+import { createVirtualScroller } from "./virtual-scroller";
 
 const VIRTUAL_ROW_HEIGHT = 24;
 const VIRTUAL_OVERSCAN = 30;
@@ -19,13 +20,10 @@ const MAX_PHYSICAL_HEIGHT = 1_000_000;
 
 const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
-// The spacer is capped at MAX_PHYSICAL_HEIGHT, so past ~41.6k rows it stands
-// compressed by this factor while pooled rows still render at native height.
-function heightScale(totalRows: number): number {
-  const virtualHeight = totalRows * VIRTUAL_ROW_HEIGHT;
-  return virtualHeight > MAX_PHYSICAL_HEIGHT
-    ? virtualHeight / MAX_PHYSICAL_HEIGHT
-    : 1;
+// The spacer stands in for every row, capped at MAX_PHYSICAL_HEIGHT: past
+// ~41.6k rows it stands compressed while pooled rows render at native height.
+function treeSpacerHeight(virtualHeight: number): number {
+  return Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
 }
 
 // Rows kept in the pool either side of the viewport. A compressed spacer turns
@@ -41,12 +39,6 @@ function overscanRows(scale: number): number {
     Math.round(VIRTUAL_OVERSCAN / scale),
     Math.ceil(scale / VIRTUAL_ROW_HEIGHT)
   );
-}
-
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => resolve());
-  });
 }
 
 interface PoolRow {
@@ -520,7 +512,6 @@ export function createTreeView(
 
   applyExpansionDepth(options?.initialExpansionDepth ?? null);
 
-  const rowPool: PoolRow[] = [];
   const rowByNodeId = new Map<number, HTMLElement>();
   let searchToken = 0;
   let searchMatches: number[] = [];
@@ -530,15 +521,32 @@ export function createTreeView(
   let searchRegex = false;
   let preSearchExpandedSnapshot: Uint8Array | null = null;
   let pendingScrollNodeId: number | null = null;
-  let renderScheduled = false;
+  // The nodes the current window covers, resolved once per render by one
+  // traversal rather than per row.
+  let windowNodeIds: number[] = [];
 
-  function ensurePoolSize(size: number): void {
-    while (rowPool.length < size) {
-      const row = createPoolRow();
-      rowPool.push(row);
-      rowsLayer.appendChild(row.line);
-    }
-  }
+  const scroller = createVirtualScroller<PoolRow>({
+    scrollContainer,
+    spacer,
+    rowsLayer,
+    rowHeight: VIRTUAL_ROW_HEIGHT,
+    overscan: overscanRows,
+    spacerHeight: treeSpacerHeight,
+    getRowCount: totalVisibleRows,
+    createRow: createPoolRow,
+    isPaused: () => container.classList.contains("jv-hidden"),
+    prepareWindow(startIndex: number, endIndex: number): number {
+      windowNodeIds = getWindowNodeIds(startIndex, endIndex);
+      rowByNodeId.clear();
+      return windowNodeIds.length;
+    },
+    bindRow(row: PoolRow, _rowIndex: number, poolIndex: number): void {
+      const nodeId = windowNodeIds[poolIndex];
+      applyPoolRow(row, model.nodes[nodeId], isExpandedBit(nodeId));
+      rowByNodeId.set(nodeId, row.line);
+    },
+    onWindowRendered: afterWindowRendered,
+  });
 
   function currentSearchState(): TreeSearchState {
     return {
@@ -560,8 +568,8 @@ export function createTreeView(
   }
 
   function applySearchClasses() {
-    for (let i = 0; i < rowPool.length; i += 1) {
-      rowPool[i].line.classList.remove("jv-search-match", "jv-search-active");
+    for (const row of scroller.pool()) {
+      row.line.classList.remove("jv-search-match", "jv-search-active");
     }
     if (searchMatchSet.size === 0) return;
     rowByNodeId.forEach((row, nodeId) => {
@@ -576,91 +584,17 @@ export function createTreeView(
   function scrollToNode(nodeId: number): void {
     const index = rowIndexOf(nodeId);
     if (index < 0) return;
-    const viewportHeight = scrollContainer.clientHeight || window.innerHeight || 800;
-    const scale = heightScale(totalVisibleRows());
-    // When scale > 1 the spacer is compressed but rows render at native height
-    // via translateY(offsetTop). Solve renderWindow's layer formula for the
-    // scrollTop that puts row `index` at viewport center.
-    const overscanComp =
-      scale === 1
-        ? 0
-        : (overscanRows(scale) * VIRTUAL_ROW_HEIGHT * (scale - 1)) /
-          (scale * scale);
-    const targetTop = Math.max(
-      0,
-      (index * VIRTUAL_ROW_HEIGHT) / scale +
-        overscanComp -
-        viewportHeight / (2 * scale) +
-        VIRTUAL_ROW_HEIGHT / (2 * scale)
-    );
-    scrollContainer.scrollTop = targetTop;
+    scroller.scrollToRow(index);
   }
 
-  function renderWindow(statusMessage?: string | null) {
-    renderScheduled = false;
-
-    // Another view owns the shared scroll container while the tree is
-    // hidden; rendering would clamp its scroll position to the tree height.
-    if (container.classList.contains("jv-hidden")) return;
-
-    const totalRows = totalVisibleRows();
+  // The tree's extras on top of a rendered window: search highlighting, the
+  // scroll retry, and the status line.
+  function afterWindowRendered(totalRows: number): void {
     if (totalRows === 0) {
-      spacer.style.height = "0px";
-      rowByNodeId.clear();
-      for (let i = 0; i < rowPool.length; i += 1) rowPool[i].line.hidden = true;
-      options?.onRenderStateChange?.(statusMessage ?? "");
+      options?.onRenderStateChange?.("");
       return;
     }
 
-    const viewportHeight = scrollContainer.clientHeight || window.innerHeight || 800;
-    const virtualHeight = totalRows * VIRTUAL_ROW_HEIGHT;
-    const physicalHeight = Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
-    spacer.style.height = `${physicalHeight}px`;
-
-    const scale = heightScale(totalRows);
-
-    // Clamp only the local value used for window math. The browser owns the
-    // real scroll bounds — its scrollable range includes container padding,
-    // so writing this clamp back made the last rows unreachable.
-    const maxScroll = Math.max(0, physicalHeight - viewportHeight);
-    let scrollTop = scrollContainer.scrollTop;
-    if (scrollTop > maxScroll) {
-      scrollTop = maxScroll;
-    }
-
-    const virtualScrollTop = scrollTop * scale;
-    const overscan = overscanRows(scale);
-    const startIndex = Math.max(
-      0,
-      Math.floor(virtualScrollTop / VIRTUAL_ROW_HEIGHT) - overscan
-    );
-    // Scroll position maps through `scale`, but the window's height does not:
-    // pooled rows render at native height, so one viewport holds
-    // viewportHeight / VIRTUAL_ROW_HEIGHT of them however compressed the
-    // spacer is. Sizing this by viewport × scale built thousands of rows a
-    // frame for the few dozen on screen.
-    const endIndex = Math.min(
-      totalRows,
-      Math.ceil((virtualScrollTop + viewportHeight) / VIRTUAL_ROW_HEIGHT) +
-        overscan
-    );
-    const offsetTop = (startIndex * VIRTUAL_ROW_HEIGHT) / scale;
-
-    rowsLayer.style.transform = `translateY(${offsetTop}px)`;
-
-    const nodeIds = getWindowNodeIds(startIndex, endIndex);
-    ensurePoolSize(nodeIds.length);
-    rowByNodeId.clear();
-    for (let i = 0; i < nodeIds.length; i += 1) {
-      const nodeId = nodeIds[i];
-      const row = rowPool[i];
-      applyPoolRow(row, model.nodes[nodeId], isExpandedBit(nodeId));
-      row.line.hidden = false;
-      rowByNodeId.set(nodeId, row.line);
-    }
-    for (let i = nodeIds.length; i < rowPool.length; i += 1) {
-      rowPool[i].line.hidden = true;
-    }
     applySearchClasses();
 
     if (pendingScrollNodeId !== null) {
@@ -675,23 +609,14 @@ export function createTreeView(
     }
 
     options?.onRenderStateChange?.(
-      statusMessage ??
-        (totalRows > 10000
-          ? `Showing ${totalRows.toLocaleString()} expanded rows with virtualization.`
-          : "")
+      totalRows > 10000
+        ? `Showing ${totalRows.toLocaleString()} expanded rows with virtualization.`
+        : ""
     );
   }
 
-  function scheduleWindowRender() {
-    if (renderScheduled) return;
-    renderScheduled = true;
-    void nextFrame().then(() => {
-      renderWindow();
-    });
-  }
-
   function render(): void {
-    renderWindow();
+    scroller.render();
   }
 
   function snapshotExpanded(): Uint8Array {
@@ -711,7 +636,7 @@ export function createTreeView(
       revealNode(searchMatches[activeSearchIndex]);
     } else {
       pendingScrollNodeId = null;
-      renderWindow();
+      scroller.render();
     }
   }
 
@@ -726,7 +651,7 @@ export function createTreeView(
     }
     pendingScrollNodeId = nodeId;
     scrollToNode(nodeId);
-    renderWindow();
+    scroller.render();
   }
 
   const controller: TreeViewController = {
@@ -749,7 +674,7 @@ export function createTreeView(
       setExpandedAndPropagate(nodeId, !wasExpanded);
       pendingScrollNodeId = nodeId;
       scrollToNode(nodeId);
-      renderWindow();
+      scroller.render();
     },
 
     toggleAllChildren(nodeId: number): void {
@@ -785,7 +710,7 @@ export function createTreeView(
 
       pendingScrollNodeId = nodeId;
       scrollToNode(nodeId);
-      renderWindow();
+      scroller.render();
     },
 
     async search(query: string, regex = false): Promise<TreeSearchState> {
@@ -816,7 +741,7 @@ export function createTreeView(
       if (activeSearchIndex >= 0) {
         revealNode(searchMatches[activeSearchIndex]);
       } else {
-        renderWindow();
+        scroller.render();
       }
 
       options?.onRenderStateChange?.("");
@@ -845,7 +770,7 @@ export function createTreeView(
       }
 
       pendingScrollNodeId = null;
-      renderWindow();
+      scroller.render();
       options?.onRenderStateChange?.("");
       return currentSearchState();
     },
@@ -878,19 +803,13 @@ export function createTreeView(
     revealNode,
 
     refresh(): void {
-      scheduleWindowRender();
+      scroller.schedule();
     },
 
     dispose(): void {
-      scrollContainer.removeEventListener("scroll", onScroll);
+      scroller.dispose();
     },
   };
-
-  function onScroll(): void {
-    scheduleWindowRender();
-  }
-
-  scrollContainer.addEventListener("scroll", onScroll);
 
   return controller;
 }
