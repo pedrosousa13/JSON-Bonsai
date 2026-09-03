@@ -1,7 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { buildTreeModel } from "./tree-model";
-import { compileSearchRegex, createLocalTreeSearchIndex } from "./tree-search";
+import {
+  SearchTimeoutError,
+  compileSearchRegex,
+  createLocalTreeSearchIndex,
+} from "./tree-search";
 
 const model = buildTreeModel({
   user: { name: "Alice", city: "Berlin" },
@@ -135,5 +139,104 @@ describe("chunked scanning", () => {
     expect(settled).toBe(true);
 
     await expect(pending).resolves.toEqual([]);
+  });
+});
+
+describe("bounded search time", () => {
+  // The value from the bug report: a 28-character run a nested quantifier can
+  // partition 2^27 ways, then a character that makes the match fail. Tested
+  // unguarded on V8 this costs ~16 s per call.
+  const catastrophicModel = buildTreeModel({
+    long: `${"a".repeat(28)}b${"c".repeat(271)}`,
+    plain: "findable",
+  });
+
+  test("a catastrophically backtracking pattern rejects instead of freezing", async () => {
+    const searchIndex = createLocalTreeSearchIndex(catastrophicModel);
+    const started = Date.now();
+
+    await expect(searchIndex.search("(a+)+$", { regex: true })).rejects.toBeInstanceOf(
+      SearchTimeoutError
+    );
+
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  test("a plain search returns correct matches after a timeout", async () => {
+    const searchIndex = createLocalTreeSearchIndex(catastrophicModel);
+
+    await expect(searchIndex.search("(a+)+$", { regex: true })).rejects.toThrow();
+
+    await expect(searchIndex.search("findable")).resolves.toEqual([
+      catastrophicModel.pathToId.get("data.plain"),
+    ]);
+  });
+
+  test("an ordinary pattern is not mistaken for a catastrophic one", async () => {
+    const searchIndex = createLocalTreeSearchIndex(catastrophicModel);
+
+    await expect(searchIndex.search("^finda.le$", { regex: true })).resolves.toEqual([
+      catastrophicModel.pathToId.get("data.plain"),
+    ]);
+  });
+
+  // The pattern guard refuses a search outright, so a false positive is a
+  // feature that stops working. These are the shapes people actually type.
+  test.each([
+    "al(pha|pine)",
+    "^name$",
+    "items\\[0\\]",
+    "alpha|beta",
+    "[a-z]+@[a-z]+\\.[a-z]{2,}",
+    "^\\d{4}-\\d{2}-\\d{2}$",
+    ".*",
+    "a{1,10}b",
+    "(foo|bar)+baz",
+  ])("the pattern guard lets %s through", async (pattern) => {
+    const searchIndex = createLocalTreeSearchIndex(model);
+    await expect(searchIndex.search(pattern, { regex: true })).resolves.toBeInstanceOf(
+      Array
+    );
+  });
+
+  // The price of the guard: a pattern whose worst case is catastrophic is
+  // refused even on a document that would never have triggered it. This one
+  // matches "findable" in well under a millisecond, and is still refused.
+  test("a pattern with a catastrophic worst case is refused even when this document is small", async () => {
+    const searchIndex = createLocalTreeSearchIndex(catastrophicModel);
+
+    await expect(
+      searchIndex.search("^(\\w+\\s?)+findable$", { regex: true })
+    ).rejects.toBeInstanceOf(SearchTimeoutError);
+  });
+
+  test("a scan that outlives the wall-clock budget rejects", async () => {
+    const searchIndex = createLocalTreeSearchIndex(model);
+    // Every reading of the clock jumps 5 s, so the budget is spent by the
+    // second node whatever the budget constant happens to be.
+    let clock = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      const reading = clock;
+      clock += 5000;
+      return reading;
+    });
+
+    try {
+      await expect(searchIndex.search("alice")).rejects.toBeInstanceOf(SearchTimeoutError);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test("regex search reads only the head of a very long value", async () => {
+    const longModel = buildTreeModel({ blob: `${"x".repeat(5000)}needle` });
+    const searchIndex = createLocalTreeSearchIndex(longModel);
+
+    // Past the regex read limit, so regex mode cannot see it...
+    await expect(searchIndex.search("needle", { regex: true })).resolves.toEqual([]);
+    // ...while substring matching stays linear and still reads the whole value.
+    await expect(searchIndex.search("needle")).resolves.toEqual([
+      longModel.pathToId.get("data.blob"),
+    ]);
   });
 });

@@ -5,7 +5,11 @@ import { describe, expect, test } from "vitest";
 import { buildTreeModel } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
-import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
+import {
+  SearchTimeoutError,
+  createLocalTreeSearchIndex,
+  type TreeSearchIndex,
+} from "./tree-search";
 import { runQuery } from "./query";
 import { composeNodeQuery, projectLastIndex } from "./query-suggest";
 
@@ -208,6 +212,40 @@ describe("createTreeView", () => {
     expect(treeView.getSearchState().query).toBe("second");
     expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
       "data.beta.nested.target"
+    );
+  });
+
+  test("a timed-out search reports the timeout and the next search clears it", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({ alpha: "one", beta: "two" });
+    let timeoutPending = true;
+    const searchIndex: TreeSearchIndex = {
+      search(): Promise<number[]> {
+        if (timeoutPending) {
+          timeoutPending = false;
+          return Promise.reject(new SearchTimeoutError());
+        }
+        return Promise.resolve([model.pathToId.get("data.beta")!]);
+      },
+      dispose(): void {},
+    };
+    const treeView = createTreeView(container, model, {
+      initialExpansionDepth: 1,
+      searchIndex,
+    });
+
+    await treeView.render();
+
+    const timedOut = await treeView.search("(a+)+$", true);
+    expect(timedOut.timedOut).toBe(true);
+    expect(timedOut.matchCount).toBe(0);
+    expect(container.querySelector(".jv-search-active")).toBeNull();
+
+    const recovered = await treeView.search("two");
+    expect(recovered.timedOut).toBe(false);
+    expect(recovered.matchCount).toBe(1);
+    expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
+      "data.beta"
     );
   });
 

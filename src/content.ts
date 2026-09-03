@@ -301,7 +301,7 @@ async function init(): Promise<void> {
           <button id="jv-search-history-toggle" class="jv-search-affix" type="button" hidden aria-label="Recent searches" title="Recent searches" aria-haspopup="menu" aria-expanded="false" aria-controls="jv-search-history">↺</button>
           <div id="jv-search-history" role="menu" aria-label="Recent searches" hidden></div>
         </div>
-        <button id="jv-search-regex" type="button" aria-pressed="false" title="Regex search (case-insensitive)">.*</button>
+        <button id="jv-search-regex" type="button" aria-pressed="false" title="Regex search (case-insensitive, first 4096 characters of long values)">.*</button>
         <span id="jv-search-status"></span>
         <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
         <button id="jv-search-next" title="Next result (Enter)">↓</button>
@@ -867,9 +867,19 @@ async function init(): Promise<void> {
       searchNextBtn.disabled = true;
       return;
     }
-    searchStatus.classList.remove("jv-search-error");
-
     const state = treeView.getSearchState();
+
+    // A search that ran out of its time budget found nothing yet, so saying
+    // "0 results" would be a lie. The error styling doubles as the cue that
+    // this is not an ordinary empty result.
+    if (state.timedOut) {
+      searchStatus.textContent = "Search timed out";
+      searchStatus.classList.add("jv-search-error");
+      searchPrevBtn.disabled = true;
+      searchNextBtn.disabled = true;
+      return;
+    }
+    searchStatus.classList.remove("jv-search-error");
 
     if (!state.query) {
       searchStatus.textContent = "";

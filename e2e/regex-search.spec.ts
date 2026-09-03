@@ -1,12 +1,19 @@
 // Regex search: toggling the .* button switches tree search to case-insensitive
-// regex matching, navigation steps through hits, and an invalid pattern shows an
-// inline error instead of crashing.
+// regex matching, navigation steps through hits, an invalid pattern shows an
+// inline error instead of crashing, and a catastrophically backtracking pattern
+// reports a timeout instead of wedging the page (issue #51).
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { launchWithExtension, serveJson, type FixtureServer } from "./helpers";
+
+// The value from issue #51: a 28-character run a nested quantifier can partition
+// 2^27 ways, then a character that makes the match fail. Unguarded, `(a+)+$`
+// over it holds the page's main thread for ~16 s.
+const catastrophicValue = `${"a".repeat(28)}b${"c".repeat(271)}`;
 
 const payload = JSON.stringify({
   user: { name: "Alice", city: "Berlin" },
   items: [{ tag: "alpha" }, { tag: "beta" }, { tag: "alpine" }],
+  blob: catastrophicValue,
 });
 
 let context: BrowserContext;
@@ -62,4 +69,17 @@ test("invalid regex shows an inline error without crashing", async () => {
   await search("ber.in");
   await expect(page.locator("#jv-search-status")).not.toContainText("Invalid");
   await expect(page.locator("#jv-search-status")).toContainText("of 1");
+});
+
+test("a catastrophic pattern times out instead of wedging the page", async () => {
+  const started = Date.now();
+  await search("(a+)+$");
+  await expect(page.locator("#jv-search-status")).toContainText("Search timed out");
+  expect(Date.now() - started).toBeLessThan(2000);
+
+  // The page is still responsive, and the next search behaves normally.
+  await page.click("#jv-search-regex");
+  await search("alpine");
+  await expect(page.locator("#jv-search-status")).toContainText("of 1");
+  await expect(page.locator(".jv-line.jv-search-active")).toHaveCount(1);
 });

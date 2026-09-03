@@ -1857,3 +1857,50 @@ test("a resolving storage load still mounts with the stored theme and prefs", as
     (document.getElementById("jv-remember-query") as HTMLInputElement).checked
   ).toBe(false);
 });
+
+test("a catastrophic regex reports a timeout and leaves search working", async () => {
+  vi.resetModules();
+  statefulChrome();
+
+  // The value from issue #51: a 28-character run a nested quantifier can
+  // partition 2^27 ways, then a character that makes the match fail.
+  const payload = {
+    long: `${"a".repeat(28)}b${"c".repeat(271)}`,
+    plain: "findable",
+  };
+  resetDocumentWithBody(`<pre>${JSON.stringify(payload)}</pre>`);
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchStatus = document.getElementById("jv-search-status")!;
+  const searchNext = document.getElementById("jv-search-next") as HTMLButtonElement;
+
+  async function type(query: string): Promise<void> {
+    searchInput.value = query;
+    searchInput.dispatchEvent(new Event("input"));
+    // Outlast the 180ms debounce plus the search itself.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+
+  document.getElementById("jv-search-toggle")!.click();
+  const regexToggle = document.getElementById("jv-search-regex")!;
+  // Regex mode reads only the head of a long value; the toggle says so rather
+  // than narrowing what regex search finds in silence.
+  expect(regexToggle.title).toContain("4096 characters");
+  regexToggle.click();
+
+  const started = Date.now();
+  await type("(a+)+$");
+  expect(Date.now() - started).toBeLessThan(2000);
+  expect(searchStatus.textContent).toBe("Search timed out");
+  expect(searchStatus.classList.contains("jv-search-error")).toBe(true);
+  expect(searchNext.disabled).toBe(true);
+
+  // The viewer is still alive, and the next search behaves normally.
+  document.getElementById("jv-search-regex")!.click();
+  await type("findable");
+  expect(searchStatus.textContent).toBe("1 of 1");
+  expect(searchStatus.classList.contains("jv-search-error")).toBe(false);
+});
