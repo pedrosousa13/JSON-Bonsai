@@ -36,7 +36,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 ### Query, search, and copy
 
-- JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree
+- JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree, and drives every other view (table, formatted, raw, schema) and Copy until the query is cleared
 - Query relative to any node — "Query from here" seeds a node's path; append `| expr` to query inside that subtree, with autocomplete resolving keys against the scoped node
 - Content search with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`); in table view, search filters the rows instead
 - Hover any property to see its full JSON path — click to pin, then copy

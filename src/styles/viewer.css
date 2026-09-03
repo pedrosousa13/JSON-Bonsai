@@ -603,6 +603,22 @@ html:has(#jv-root) {
   word-break: break-all;
 }
 
+/* Raw has no source text for a query result, so it shows a serialization —
+   this says so. Only rendered while the raw view is active and a query is. */
+#jv-raw-note {
+  width: fit-content;
+  margin-bottom: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+#jv-raw-note[hidden] {
+  display: none;
+}
+
 .jv-line {
   position: relative;
   padding-left: calc(var(--jv-depth, 0) * 20px + 20px);

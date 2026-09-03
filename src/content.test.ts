@@ -656,6 +656,143 @@ test("clicking the query chip reopens the editor seeded with the active query", 
   expect(queryInput.value).toBe("users");
 });
 
+// Runs `expression` through the query panel and waits for the result to mount.
+async function runQuery(expression: string): Promise<void> {
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  document.getElementById("jv-query-toggle")!.click();
+  queryInput.value = expression;
+  queryInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  document.getElementById("jv-query-close")!.click();
+}
+
+const viewBtn = (view: string) =>
+  document.querySelector<HTMLElement>(`.jv-view-btn[data-view="${view}"]`)!;
+
+test("an active query drives the formatted, raw, and schema views", async () => {
+  vi.resetModules();
+  stubChrome();
+  const writeText = vi.fn(async (_text: string) => {});
+  Object.defineProperty(window.navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+  });
+
+  // Deliberately odd spacing: a re-serialization of the original would not
+  // reproduce it, so the restore assertions below can tell the two apart.
+  const source = `{"items": [{"id": 1,   "name": "a"}, {"id": 2, "name": "b"}]}`;
+  document.body.innerHTML = `<pre>${source}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const formattedEl = document.getElementById("jv-formatted")!;
+  const rawEl = document.getElementById("jv-raw")!;
+  const schemaEl = document.getElementById("jv-schema")!;
+  const rawNote = document.getElementById("jv-raw-note")!;
+  const copy = document.getElementById("jv-copy")!;
+  const element = { id: 1, name: "a" };
+
+  // Visit every text view first, so each one caches the original document
+  // and the query has stale content to invalidate.
+  for (const view of ["formatted", "raw", "schema"]) viewBtn(view).click();
+  expect(rawEl.textContent).toBe(source);
+  expect(rawNote.hidden).toBe(true);
+
+  viewBtn("tree").click();
+  await runQuery("items[0]");
+
+  // Formatted: the result, pretty-printed — and Copy agrees with it.
+  viewBtn("formatted").click();
+  expect(formattedEl.textContent).toBe(JSON.stringify(element, null, 2));
+  copy.click();
+  expect(writeText).toHaveBeenLastCalledWith(JSON.stringify(element, null, 2));
+
+  // Raw: a serialization of the result, flagged as such since a derived
+  // value has no source text of its own.
+  viewBtn("raw").click();
+  expect(rawEl.textContent).toBe(JSON.stringify(element));
+  expect(rawNote.hidden).toBe(false);
+  copy.click();
+  expect(writeText).toHaveBeenLastCalledWith(JSON.stringify(element));
+
+  // Schema: inferred from the result, not from the whole document.
+  viewBtn("schema").click();
+  expect(schemaEl.textContent).toContain(`"name"`);
+  expect(schemaEl.textContent).not.toContain(`"items"`);
+  copy.click();
+  expect(writeText).toHaveBeenLastCalledWith(schemaEl.textContent);
+});
+
+test("clearing the query restores every view, raw to its source text", async () => {
+  vi.resetModules();
+  stubChrome();
+  const writeText = vi.fn(async (_text: string) => {});
+  Object.defineProperty(window.navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+  });
+
+  const source = `{"items": [{"id": 1,   "name": "a"}, {"id": 2, "name": "b"}]}`;
+  document.body.innerHTML = `<pre>${source}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const rawEl = document.getElementById("jv-raw")!;
+  const formattedEl = document.getElementById("jv-formatted")!;
+  const schemaEl = document.getElementById("jv-schema")!;
+  const rawNote = document.getElementById("jv-raw-note")!;
+
+  await runQuery("items[0]");
+
+  // Clear the query from inside the raw view — the chip's ✕ lives in the
+  // toolbar, so it is reachable from every view.
+  viewBtn("raw").click();
+  expect(rawEl.textContent).toBe(JSON.stringify({ id: 1, name: "a" }));
+  document.getElementById("jv-query-chip-clear")!.click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  // The original source text, byte for byte — not a re-serialization, which
+  // would silently reformat the document.
+  expect(rawEl.textContent).toBe(source);
+  expect(rawNote.hidden).toBe(true);
+  document.getElementById("jv-copy")!.click();
+  expect(writeText).toHaveBeenLastCalledWith(source);
+
+  viewBtn("formatted").click();
+  expect(formattedEl.textContent).toContain(`"items"`);
+  viewBtn("schema").click();
+  expect(schemaEl.textContent).toContain(`"items"`);
+});
+
+test("a query on NDJSON serializes the result and restores the lines", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  const source = `{"a":1}\n{"a":2}`;
+  document.body.innerHTML = `<pre>${source}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const rawEl = document.getElementById("jv-raw")!;
+  const rawNote = document.getElementById("jv-raw-note")!;
+
+  viewBtn("raw").click();
+  expect(rawEl.textContent).toBe(source);
+
+  viewBtn("tree").click();
+  await runQuery("[1]");
+  viewBtn("raw").click();
+  expect(rawEl.textContent).toBe(`{"a":2}`);
+  expect(rawNote.hidden).toBe(false);
+
+  document.getElementById("jv-query-chip-clear")!.click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(rawEl.textContent).toBe(source);
+  expect(rawNote.hidden).toBe(true);
+});
+
 test("a remembered query is restored and re-run on load", async () => {
   vi.resetModules();
   statefulChrome({
