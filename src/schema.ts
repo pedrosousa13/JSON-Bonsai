@@ -42,7 +42,9 @@ export function inferSchema(value: unknown): object {
 
     if (typeof v === "object") {
       const entries = Object.entries(v as Record<string, unknown>);
-      const properties: Record<string, object> = {};
+      // Null-prototype so a `__proto__` key lands as a plain property instead
+      // of retargeting the map's prototype. It still serializes as an object.
+      const properties: Record<string, object> = Object.create(null);
       const required = entries.map(([k]) => k);
       // Children fill `properties` in place, so we can assign immediately.
       task.assign({ type: "object", properties, required });
@@ -66,11 +68,11 @@ export function inferSchema(value: unknown): object {
 // copying the accumulated properties on every merge — that copy made schema
 // inference O(n^2) over arrays of objects with many distinct keys.
 function mergeObjectSchemas(a: any, b: any): object {
-  const properties: Record<string, object> = a.properties ?? (a.properties = {});
+  const properties: Record<string, object> = a.properties ?? (a.properties = Object.create(null));
   const bReq = new Set<string>(b.required ?? []);
 
   for (const [k, v] of Object.entries(b.properties ?? {})) {
-    properties[k] = k in properties
+    properties[k] = Object.prototype.hasOwnProperty.call(properties, k)
       ? mergeSchemas(properties[k] as object, v as object)
       : (v as object);
   }
