@@ -301,7 +301,7 @@ async function init(): Promise<void> {
           <button id="jv-search-history-toggle" class="jv-search-affix" type="button" hidden aria-label="Recent searches" title="Recent searches" aria-haspopup="menu" aria-expanded="false" aria-controls="jv-search-history">↺</button>
           <div id="jv-search-history" role="menu" aria-label="Recent searches" hidden></div>
         </div>
-        <button id="jv-search-regex" type="button" aria-pressed="false" title="Regex search (case-insensitive, first 4096 characters of long values)">.*</button>
+        <button id="jv-search-regex" type="button" aria-pressed="false" title="Regex search (case-insensitive, first 4096 characters of long text)">.*</button>
         <span id="jv-search-status"></span>
         <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
         <button id="jv-search-next" title="Next result (Enter)">↓</button>
@@ -869,11 +869,16 @@ async function init(): Promise<void> {
     }
     const state = treeView.getSearchState();
 
-    // A search that ran out of its time budget found nothing yet, so saying
-    // "0 results" would be a lie. The error styling doubles as the cue that
-    // this is not an ordinary empty result.
-    if (state.timedOut) {
-      searchStatus.textContent = "Search timed out";
+    // A search that stopped short found nothing yet, so saying "0 results"
+    // would be a lie. The error styling doubles as the cue that this is not an
+    // ordinary empty result. The two reasons get different wording because they
+    // are different events: a refused pattern never ran, so calling that a
+    // timeout would misdescribe what happened and what to do about it.
+    if (state.limitReason !== null) {
+      searchStatus.textContent =
+        state.limitReason === "pattern-too-slow"
+          ? "Pattern too slow to run"
+          : "Search timed out";
       searchStatus.classList.add("jv-search-error");
       searchPrevBtn.disabled = true;
       searchNextBtn.disabled = true;

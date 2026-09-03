@@ -1,7 +1,7 @@
 // Regex search: toggling the .* button switches tree search to case-insensitive
 // regex matching, navigation steps through hits, an invalid pattern shows an
 // inline error instead of crashing, and a catastrophically backtracking pattern
-// reports a timeout instead of wedging the page (issue #51).
+// is refused instead of wedging the page (issue #51).
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { launchWithExtension, serveJson, type FixtureServer } from "./helpers";
 
@@ -14,6 +14,11 @@ const payload = JSON.stringify({
   user: { name: "Alice", city: "Berlin" },
   items: [{ tag: "alpha" }, { tag: "beta" }, { tag: "alpine" }],
   blob: catastrophicValue,
+  // A 30-character run, inside the 200-character preview the index stores, so
+  // `(a+)+\W$` has fuel here whatever the long-value cap is.
+  run: "a".repeat(30),
+  // Fuel for a pattern whose lookahead needs a character the run does not have.
+  runx: `${"a".repeat(28)}x`,
 });
 
 let context: BrowserContext;
@@ -71,15 +76,21 @@ test("invalid regex shows an inline error without crashing", async () => {
   await expect(page.locator("#jv-search-status")).toContainText("of 1");
 });
 
-test("a catastrophic pattern times out instead of wedging the page", async () => {
-  const started = Date.now();
-  await search("(a+)+$");
-  await expect(page.locator("#jv-search-status")).toContainText("Search timed out");
-  expect(Date.now() - started).toBeLessThan(2000);
+// Each of these is catastrophic against a value in the fixture. The last three
+// have a tail that can consume a single trailing sentinel character, so a probe
+// that only appends one lets them through.
+for (const pattern of ["(a+)+$", "(a+)+\\W$", "(a+)+[^b]$", "(?=.*x)(a+)+$"]) {
+  test(`the pattern ${pattern} is refused instead of wedging the page`, async () => {
+    const started = Date.now();
+    await search(pattern);
+    await expect(page.locator("#jv-search-status")).toContainText(
+      "Pattern too slow to run"
+    );
+    expect(Date.now() - started).toBeLessThan(2000);
 
-  // The page is still responsive, and the next search behaves normally.
-  await page.click("#jv-search-regex");
-  await search("alpine");
-  await expect(page.locator("#jv-search-status")).toContainText("of 1");
-  await expect(page.locator(".jv-line.jv-search-active")).toHaveCount(1);
-});
+    // The page is still responsive, and the next search behaves normally.
+    await search("alpine");
+    await expect(page.locator("#jv-search-status")).toContainText("of 1");
+    await expect(page.locator(".jv-line.jv-search-active")).toHaveCount(1);
+  });
+}

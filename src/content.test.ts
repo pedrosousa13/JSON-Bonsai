@@ -1858,7 +1858,7 @@ test("a resolving storage load still mounts with the stored theme and prefs", as
   ).toBe(false);
 });
 
-test("a catastrophic regex reports a timeout and leaves search working", async () => {
+test("a catastrophic regex is reported as refused and leaves search working", async () => {
   vi.resetModules();
   statefulChrome();
 
@@ -1886,7 +1886,7 @@ test("a catastrophic regex reports a timeout and leaves search working", async (
 
   document.getElementById("jv-search-toggle")!.click();
   const regexToggle = document.getElementById("jv-search-regex")!;
-  // Regex mode reads only the head of a long value; the toggle says so rather
+  // Regex mode reads only the head of long text; the toggle says so rather
   // than narrowing what regex search finds in silence.
   expect(regexToggle.title).toContain("4096 characters");
   regexToggle.click();
@@ -1894,7 +1894,9 @@ test("a catastrophic regex reports a timeout and leaves search working", async (
   const started = Date.now();
   await type("(a+)+$");
   expect(Date.now() - started).toBeLessThan(2000);
-  expect(searchStatus.textContent).toBe("Search timed out");
+  // Refused before the document was touched, so calling it a timeout would be
+  // a lie about what happened.
+  expect(searchStatus.textContent).toBe("Pattern too slow to run");
   expect(searchStatus.classList.contains("jv-search-error")).toBe(true);
   expect(searchNext.disabled).toBe(true);
 
@@ -1903,4 +1905,39 @@ test("a catastrophic regex reports a timeout and leaves search working", async (
   await type("findable");
   expect(searchStatus.textContent).toBe("1 of 1");
   expect(searchStatus.classList.contains("jv-search-error")).toBe(false);
+});
+
+test("a scan that outlives its budget is reported as a timeout, not as a refusal", async () => {
+  vi.resetModules();
+  statefulChrome();
+  resetDocumentWithBody(`<pre>${JSON.stringify({ plain: "findable" })}</pre>`);
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchStatus = document.getElementById("jv-search-status")!;
+  const searchNext = document.getElementById("jv-search-next") as HTMLButtonElement;
+
+  document.getElementById("jv-search-toggle")!.click();
+
+  // Every reading of the scan's clock jumps 5 s, so a plain substring search
+  // over two nodes outlives its budget without any expensive pattern.
+  let clock = 0;
+  const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+    const reading = clock;
+    clock += 5000;
+    return reading;
+  });
+  try {
+    searchInput.value = "findable";
+    searchInput.dispatchEvent(new Event("input"));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  } finally {
+    nowSpy.mockRestore();
+  }
+
+  expect(searchStatus.textContent).toBe("Search timed out");
+  expect(searchStatus.classList.contains("jv-search-error")).toBe(true);
+  expect(searchNext.disabled).toBe(true);
 });

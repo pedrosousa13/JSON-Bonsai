@@ -5,9 +5,10 @@ import {
   isContainerNode,
 } from "./tree-model";
 import {
-  SearchTimeoutError,
+  SearchLimitError,
   createLocalTreeSearchIndex,
   type TreeSearchIndex,
+  type SearchLimitReason,
 } from "./tree-search";
 
 const VIRTUAL_ROW_HEIGHT = 24;
@@ -264,9 +265,10 @@ export interface TreeSearchState {
   matchCount: number;
   activeIndex: number;
   regex: boolean;
-  // The last search ran out of its time budget, so matchCount is not a real
-  // count of zero. Cleared by the next search.
-  timedOut: boolean;
+  // Why the last search stopped short, when it did: matchCount is then not a
+  // real count of zero. Null for a search that read the whole document.
+  // Cleared by the next search.
+  limitReason: SearchLimitReason | null;
 }
 
 export interface TreeViewController {
@@ -502,7 +504,7 @@ export function createTreeView(
   let activeSearchIndex = -1;
   let searchQuery = "";
   let searchRegex = false;
-  let searchTimedOut = false;
+  let searchLimitReason: SearchLimitReason | null = null;
   let preSearchExpandedSnapshot: Uint8Array | null = null;
   let pendingScrollNodeId: number | null = null;
   let renderScheduled = false;
@@ -521,7 +523,7 @@ export function createTreeView(
       matchCount: searchMatches.length,
       activeIndex: activeSearchIndex,
       regex: searchRegex,
-      timedOut: searchTimedOut,
+      limitReason: searchLimitReason,
     };
   }
 
@@ -791,7 +793,7 @@ export function createTreeView(
 
       searchQuery = query;
       searchRegex = regex;
-      searchTimedOut = false;
+      searchLimitReason = null;
       searchToken += 1;
       const token = searchToken;
       options?.onRenderStateChange?.("Searching...");
@@ -800,12 +802,12 @@ export function createTreeView(
       try {
         matches = await searchIndex.search(effectiveQuery, { regex });
       } catch (error) {
-        if (!(error instanceof SearchTimeoutError)) throw error;
-        // A search that ran out of its budget leaves no matches and says so, so
-        // the caller can show a timeout instead of a bare "0 results". The
-        // index is untouched, so the next search runs normally.
+        if (!(error instanceof SearchLimitError)) throw error;
+        // A search that stopped short leaves no matches and says why, so the
+        // caller can show that instead of a bare "0 results". The index is
+        // untouched, so the next search runs normally.
         if (token !== searchToken) return currentSearchState();
-        searchTimedOut = true;
+        searchLimitReason = error.reason;
         searchMatches = [];
         searchMatchSet = new Set();
         activeSearchIndex = -1;
@@ -843,7 +845,7 @@ export function createTreeView(
       searchToken += 1;
       searchQuery = "";
       searchRegex = false;
-      searchTimedOut = false;
+      searchLimitReason = null;
       searchMatches = [];
       searchMatchSet = new Set();
       activeSearchIndex = -1;

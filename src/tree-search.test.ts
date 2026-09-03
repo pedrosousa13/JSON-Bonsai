@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { buildTreeModel } from "./tree-model";
 import {
-  SearchTimeoutError,
+  SearchLimitError,
   compileSearchRegex,
   createLocalTreeSearchIndex,
 } from "./tree-search";
@@ -151,15 +151,68 @@ describe("bounded search time", () => {
     plain: "findable",
   });
 
+  // Values that make each pattern in this block catastrophic on V8. Measured
+  // unguarded, one call per fresh node process: `(a+)+\W$` over `run30` costs
+  // ~65 s, `(a+)+[^b]$` over `runThenB` ~18 s, `(?=.*x)(a+)+$` over `runThenX`
+  // ~16 s. `run30` is 30 characters, well inside the 200-character preview the
+  // index stores, so no long-value cap can bound any of them.
+  const trapModel = buildTreeModel({
+    run30: "a".repeat(30),
+    runThenB: `${"a".repeat(28)}b${"c".repeat(271)}`,
+    runThenX: `${"a".repeat(28)}x`,
+    plain: "findable",
+  });
+
   test("a catastrophically backtracking pattern rejects instead of freezing", async () => {
     const searchIndex = createLocalTreeSearchIndex(catastrophicModel);
     const started = Date.now();
 
-    await expect(searchIndex.search("(a+)+$", { regex: true })).rejects.toBeInstanceOf(
-      SearchTimeoutError
-    );
+    await expect(searchIndex.search("(a+)+$", { regex: true })).rejects.toMatchObject({
+      reason: "pattern-too-slow",
+    });
 
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  // Every one of these has a tail that can consume a trailing sentinel
+  // character, so a probe that only appends one measures a successful match in
+  // microseconds and learns nothing. The refusal has to come from probes the
+  // pattern cannot match.
+  test.each(["(a+)+\\W$", "(a+)+[^b]$", "(?=.*x)(a+)+$"])(
+    "the guard refuses %s, whose tail can swallow a sentinel",
+    async (pattern) => {
+      const searchIndex = createLocalTreeSearchIndex(trapModel);
+      const started = Date.now();
+
+      await expect(searchIndex.search(pattern, { regex: true })).rejects.toMatchObject({
+        reason: "pattern-too-slow",
+      });
+
+      expect(Date.now() - started).toBeLessThan(2000);
+    }
+  );
+
+  // The guard is itself code that runs on the main thread, so its own decision
+  // has to be bounded. A single probe test's cost scales with the pattern's
+  // branching factor, so the probe grows its input one character at a time and
+  // stops the moment a measurement stops being cheap. Deciding about these two
+  // with the budget read after each test instead cost 3.5 s and 143 ms.
+  test.each([
+    [
+      "a heavily branching alternation",
+      `(${Array.from({ length: 160 }, () => "a").join("|")})+$`,
+    ],
+    ["deeply nested quantifiers", "((((a+)+)+)+)+$"],
+  ])("the guard decides about %s inside its own time ceiling", async (_label, pattern) => {
+    const searchIndex = createLocalTreeSearchIndex(model);
+    const started = performance.now();
+
+    await expect(searchIndex.search(pattern, { regex: true })).rejects.toMatchObject({
+      reason: "pattern-too-slow",
+    });
+
+    // The pattern never reaches the document, so this measures the decision.
+    expect(performance.now() - started).toBeLessThan(100);
   });
 
   test("a plain search returns correct matches after a timeout", async () => {
@@ -192,6 +245,14 @@ describe("bounded search time", () => {
     ".*",
     "a{1,10}b",
     "(foo|bar)+baz",
+    "(?:[a-z]+-)+[a-z]+",
+    "(hello )+world",
+    "(\\d{1,3}\\.){3}\\d{1,3}",
+    "^(.*,)*.*$",
+    // Nested quantifiers without a failing tail: this matches any value with an
+    // "a" in it at the first offset it reaches, so it never backtracks. The
+    // guard measures cost, so it must not refuse this on shape alone.
+    "(a+)+",
   ])("the pattern guard lets %s through", async (pattern) => {
     const searchIndex = createLocalTreeSearchIndex(model);
     await expect(searchIndex.search(pattern, { regex: true })).resolves.toBeInstanceOf(
@@ -207,7 +268,7 @@ describe("bounded search time", () => {
 
     await expect(
       searchIndex.search("^(\\w+\\s?)+findable$", { regex: true })
-    ).rejects.toBeInstanceOf(SearchTimeoutError);
+    ).rejects.toMatchObject({ reason: "pattern-too-slow" });
   });
 
   test("a scan that outlives the wall-clock budget rejects", async () => {
@@ -222,7 +283,10 @@ describe("bounded search time", () => {
     });
 
     try {
-      await expect(searchIndex.search("alice")).rejects.toBeInstanceOf(SearchTimeoutError);
+      await expect(searchIndex.search("alice")).rejects.toMatchObject({
+        reason: "timeout",
+      });
+      await expect(searchIndex.search("alice")).rejects.toBeInstanceOf(SearchLimitError);
     } finally {
       nowSpy.mockRestore();
     }
@@ -238,5 +302,20 @@ describe("bounded search time", () => {
     await expect(searchIndex.search("needle")).resolves.toEqual([
       longModel.pathToId.get("data.blob"),
     ]);
+  });
+
+  // A key and a path are stored whole, so without a cap of their own they hand
+  // a polynomial pattern an input as long as the document is deep.
+  test("regex search reads only the head of a very long key and path", async () => {
+    const longKey = `${"k".repeat(5000)}needle`;
+    const longModel = buildTreeModel({ [longKey]: "value" });
+    const searchIndex = createLocalTreeSearchIndex(longModel);
+    const nodeId = longModel.pathToId.get(`data.${longKey}`);
+
+    // Past the regex read limit, so regex mode cannot see it in the key or in
+    // the path that contains the key...
+    await expect(searchIndex.search("needle", { regex: true })).resolves.toEqual([]);
+    // ...while substring matching stays linear and still reads both whole.
+    await expect(searchIndex.search("needle")).resolves.toEqual([nodeId]);
   });
 });

@@ -6,7 +6,7 @@ import { buildTreeModel } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
 import {
-  SearchTimeoutError,
+  SearchLimitError,
   createLocalTreeSearchIndex,
   type TreeSearchIndex,
 } from "./tree-search";
@@ -215,15 +215,24 @@ describe("createTreeView", () => {
     );
   });
 
-  test("a timed-out search reports the timeout and the next search clears it", async () => {
+  // The two ways a search can stop short are different events, and the state
+  // says which: a scan that outlived its budget touched the document, while a
+  // refused pattern never ran at all.
+  test.each([
+    ["timeout" as const, new SearchLimitError("timeout")],
+    ["pattern-too-slow" as const, new SearchLimitError("pattern-too-slow")],
+  ])("a search stopped by %s reports it and the next search clears it", async (
+    reason,
+    error
+  ) => {
     const container = createContainer();
     const model = buildTreeModel({ alpha: "one", beta: "two" });
-    let timeoutPending = true;
+    let limitPending = true;
     const searchIndex: TreeSearchIndex = {
       search(): Promise<number[]> {
-        if (timeoutPending) {
-          timeoutPending = false;
-          return Promise.reject(new SearchTimeoutError());
+        if (limitPending) {
+          limitPending = false;
+          return Promise.reject(error);
         }
         return Promise.resolve([model.pathToId.get("data.beta")!]);
       },
@@ -236,13 +245,13 @@ describe("createTreeView", () => {
 
     await treeView.render();
 
-    const timedOut = await treeView.search("(a+)+$", true);
-    expect(timedOut.timedOut).toBe(true);
-    expect(timedOut.matchCount).toBe(0);
+    const stopped = await treeView.search("(a+)+$", true);
+    expect(stopped.limitReason).toBe(reason);
+    expect(stopped.matchCount).toBe(0);
     expect(container.querySelector(".jv-search-active")).toBeNull();
 
     const recovered = await treeView.search("two");
-    expect(recovered.timedOut).toBe(false);
+    expect(recovered.limitReason).toBeNull();
     expect(recovered.matchCount).toBe(1);
     expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
       "data.beta"
