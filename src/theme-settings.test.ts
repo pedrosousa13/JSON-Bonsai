@@ -6,7 +6,17 @@ import {
   loadThemeState,
   type SettingsStorage,
 } from "./theme-settings";
-import { BUILTIN_SCHEMES, DEFAULT_THEME_ID } from "./themes";
+import {
+  BUILTIN_SCHEMES,
+  DEFAULT_DARK_ID,
+  DEFAULT_LIGHT_ID,
+  DEFAULT_THEME_ID,
+} from "./themes";
+
+// jsdom ships no matchMedia, and the fresh-profile default reads it.
+function stubPrefersLight(matches: boolean): void {
+  window.matchMedia = vi.fn(() => ({ matches })) as unknown as typeof window.matchMedia;
+}
 
 const PALETTE_KEYS = [
   "base00", "base01", "base02", "base03", "base04", "base05", "base06", "base07",
@@ -22,15 +32,9 @@ function fakeStorage(initial: Record<string, string> = {}): {
   return {
     store,
     storage: {
-      async get(query) {
+      async get(keys) {
         const out: Record<string, unknown> = {};
-        if (Array.isArray(query)) {
-          for (const key of query) if (store.has(key)) out[key] = store.get(key);
-        } else {
-          for (const [key, fallback] of Object.entries(query)) {
-            out[key] = store.has(key) ? store.get(key) : fallback;
-          }
-        }
+        for (const key of keys) if (store.has(key)) out[key] = store.get(key);
         return out;
       },
       async set(items) {
@@ -82,14 +86,20 @@ test("loadThemeState reads a stored id and custom schemes", async () => {
   expect(state.customs.map((s) => s.id)).toEqual(["mine"]);
 });
 
-test("loadThemeState defaults the theme id and writes nothing when none is stored", async () => {
-  const { storage, store } = fakeStorage();
+test("loadThemeState takes a fresh profile's theme from the OS, writing nothing", async () => {
+  for (const [prefersLight, expected] of [
+    [true, DEFAULT_LIGHT_ID],
+    [false, DEFAULT_DARK_ID],
+  ] as const) {
+    stubPrefersLight(prefersLight);
+    const { storage, store } = fakeStorage();
 
-  const state = await loadThemeState(storage);
+    const state = await loadThemeState(storage);
 
-  expect(state.themeId).toBe(DEFAULT_THEME_ID);
-  expect(state.customs).toEqual([]);
-  expect(store.size).toBe(0);
+    expect(state.themeId).toBe(expected);
+    expect(state.customs).toEqual([]);
+    expect(store.size).toBe(0);
+  }
 });
 
 test("loadThemeState reads storage exactly once", async () => {

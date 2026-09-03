@@ -5,6 +5,8 @@
 
 import {
   BUILTIN_SCHEMES,
+  DEFAULT_DARK_ID,
+  DEFAULT_LIGHT_ID,
   DEFAULT_THEME_ID,
   parseScheme,
   schemeToCssVars,
@@ -18,7 +20,7 @@ const CUSTOM_THEMES_KEY = "jv-custom-themes";
 
 // The slice of chrome.storage.local used here, so a test can pass a plain object.
 export interface SettingsStorage {
-  get(query: string[] | Record<string, string>): Promise<Record<string, unknown>>;
+  get(keys: string[]): Promise<Record<string, unknown>>;
   set(items: Record<string, string>): Promise<void>;
 }
 
@@ -32,20 +34,27 @@ export function defaultThemeState(): ThemeState {
 }
 
 export async function loadThemeState(storage: SettingsStorage): Promise<ThemeState> {
-  // One read before first paint: both keys, with their defaults.
-  const stored = await storage.get({
-    [THEME_ID_KEY]: DEFAULT_THEME_ID,
-    [CUSTOM_THEMES_KEY]: "[]",
-  });
+  // One read before first paint, both keys together.
+  const stored = await storage.get([THEME_ID_KEY, CUSTOM_THEMES_KEY]);
 
-  const themeId = stored[THEME_ID_KEY] as string;
+  // No stored id — a fresh profile — takes its first paint from the OS.
+  const storedId = stored[THEME_ID_KEY];
+  const themeId =
+    typeof storedId === "string"
+      ? storedId
+      : window.matchMedia("(prefers-color-scheme: light)").matches
+        ? DEFAULT_LIGHT_ID
+        : DEFAULT_DARK_ID;
 
+  const storedCustoms = stored[CUSTOM_THEMES_KEY];
   let customs: Base16Scheme[] = [];
-  try {
-    const parsed = JSON.parse(stored[CUSTOM_THEMES_KEY] as string) as unknown;
-    if (Array.isArray(parsed)) customs = parsed as Base16Scheme[];
-  } catch {
-    // Corrupted storage — start with no custom themes.
+  if (typeof storedCustoms === "string") {
+    try {
+      const parsed = JSON.parse(storedCustoms) as unknown;
+      if (Array.isArray(parsed)) customs = parsed as Base16Scheme[];
+    } catch {
+      // Corrupted storage — start with no custom themes.
+    }
   }
 
   return { themeId, customs };
