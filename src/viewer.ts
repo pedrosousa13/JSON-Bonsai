@@ -26,10 +26,16 @@ function heightScale(totalRows: number): number {
 // Rows kept in the pool either side of the viewport. A compressed spacer turns
 // one pixel of scroll into `scale` rows, so a full pad would cost `scale`
 // times the DOM to cover the same fraction of a gesture — shrink it instead.
+// But never below one pixel's worth of rows: browsers snap scrollTop to whole
+// device pixels, so a scrollToNode landing misses its target by up to that
+// many rows and the pad is what absorbs the miss. Still small: 11 rows either
+// side at scale 240 (10M expanded rows), for 55 pooled rows in all.
 function overscanRows(scale: number): number {
-  return scale === 1
-    ? VIRTUAL_OVERSCAN
-    : Math.max(1, Math.round(VIRTUAL_OVERSCAN / scale));
+  if (scale === 1) return VIRTUAL_OVERSCAN;
+  return Math.max(
+    Math.round(VIRTUAL_OVERSCAN / scale),
+    Math.ceil(scale / VIRTUAL_ROW_HEIGHT)
+  );
 }
 
 function nextFrame(): Promise<void> {
@@ -176,8 +182,10 @@ function applyLeafValue(
       a.className = "jv-link";
       a.rel = "noopener noreferrer";
       a.target = "_blank";
+      // The href stays raw so the link still navigates; only the text shown
+      // between the quotes is escaped.
       a.href = value;
-      a.textContent = value;
+      a.textContent = escapeString(value);
       span.replaceChildren('"', a, '"');
     } else if (value.length > STRING_DISPLAY_MAX) {
       // Cut the source, then escape. The other order would let the cut land
@@ -659,10 +667,14 @@ export function createTreeView(
     applySearchClasses();
 
     if (pendingScrollNodeId !== null) {
-      if (!rowByNodeId.has(pendingScrollNodeId)) {
-        scrollToNode(pendingScrollNodeId);
-      }
+      const retryNodeId = pendingScrollNodeId;
+      // Clear before retrying, not after: scrolling can drive another render
+      // that arms a fresh attempt, and clearing afterwards would wipe the
+      // flag that attempt had just set — leaving exactly one retry.
       pendingScrollNodeId = null;
+      if (!rowByNodeId.has(retryNodeId)) {
+        scrollToNode(retryNodeId);
+      }
     }
 
     options?.onRenderStateChange?.(

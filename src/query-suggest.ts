@@ -417,17 +417,13 @@ function resolveContext(path: string, data: unknown): { value: unknown } | null 
 // jump a quoted segment (spaces and all) in one step.
 function quoteSpans(text: string, end: number): Map<number, number> {
   const spans = new Map<number, number>();
-  let open = -1;
   for (let i = 0; i < end; i += 1) {
-    const c = text[i];
-    if (open === -1) {
-      if (c === '"') open = i;
-    } else if (c === "\\") {
-      i += 1;
-    } else if (c === '"') {
-      spans.set(i, open);
-      open = -1;
-    }
+    if (text[i] !== '"') continue;
+    const close = closingQuote(text, i);
+    // Unterminated, or closing past `end`: no further span starts before it.
+    if (close === -1 || close >= end) break;
+    spans.set(close, i);
+    i = close;
   }
   return spans;
 }

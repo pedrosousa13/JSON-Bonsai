@@ -63,7 +63,8 @@ export async function loadOriginPrefs(origin: string): Promise<OriginPrefs> {
 }
 
 export interface OriginPrefsWriter {
-  (prefs: OriginPrefs): void;
+  /** Queues a debounced write of `prefs`. */
+  save(prefs: OriginPrefs): void;
   /** Writes any debounced payload now; a no-op when nothing is pending. */
   flush(): void;
 }
@@ -93,27 +94,27 @@ export function createOriginPrefsWriter(
     }
   }
 
-  const writer: OriginPrefsWriter = (prefs) => {
-    const serialized = JSON.stringify(prefs);
-    if (serialized === lastQueued) return;
-    lastQueued = serialized;
-    if (!storageAvailable()) return;
+  return {
+    save(prefs) {
+      const serialized = JSON.stringify(prefs);
+      if (serialized === lastQueued) return;
+      lastQueued = serialized;
+      if (!storageAvailable()) return;
 
-    pending = { ...prefs };
-    if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
+      pending = { ...prefs };
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        write();
+      }, debounceMs);
+    },
+
+    flush() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
       write();
-    }, debounceMs);
+    },
   };
-
-  writer.flush = () => {
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    write();
-  };
-
-  return writer;
 }
