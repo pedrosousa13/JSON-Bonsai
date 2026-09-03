@@ -5,8 +5,6 @@
 
 import {
   BUILTIN_SCHEMES,
-  DEFAULT_DARK_ID,
-  DEFAULT_LIGHT_ID,
   DEFAULT_THEME_ID,
   parseScheme,
   schemeToCssVars,
@@ -22,7 +20,6 @@ const CUSTOM_THEMES_KEY = "jv-custom-themes";
 export interface SettingsStorage {
   get(query: string[] | Record<string, string>): Promise<Record<string, unknown>>;
   set(items: Record<string, string>): Promise<void>;
-  remove(keys: string[]): Promise<void>;
 }
 
 export interface ThemeState {
@@ -35,63 +32,14 @@ export function defaultThemeState(): ThemeState {
 }
 
 export async function loadThemeState(storage: SettingsStorage): Promise<ThemeState> {
-  // One-time migration from the old { mode, darkId, lightId } model to a single
-  // themeId. Also clears the older jv-theme / jv-custom-cursor keys.
-  const legacy = await storage.get([
-    "jv-theme",
-    "jv-custom-cursor",
-    "jv-theme-mode",
-    "jv-theme-dark",
-    "jv-theme-light",
-    THEME_ID_KEY,
-  ]);
+  // One read before first paint: both keys, with their defaults.
+  const stored = await storage.get({
+    [THEME_ID_KEY]: DEFAULT_THEME_ID,
+    [CUSTOM_THEMES_KEY]: "[]",
+  });
 
-  let themeId = legacy[THEME_ID_KEY] as string | undefined;
+  const themeId = stored[THEME_ID_KEY] as string;
 
-  if (typeof themeId !== "string") {
-    // Derive the single id from whatever the old model would have shown.
-    const mode =
-      (legacy["jv-theme-mode"] as string | undefined) ??
-      (legacy["jv-theme"] as string | undefined);
-    // DEFAULT_DARK_ID / DEFAULT_LIGHT_ID are migration fallbacks only.
-    const darkId = (legacy["jv-theme-dark"] as string | undefined) ?? DEFAULT_DARK_ID;
-    const lightId = (legacy["jv-theme-light"] as string | undefined) ?? DEFAULT_LIGHT_ID;
-    if (mode === "light") {
-      themeId = lightId;
-    } else if (mode === "dark") {
-      themeId = darkId;
-    } else {
-      // auto or unset: pick by OS preference, read once.
-      themeId = window.matchMedia("(prefers-color-scheme: light)").matches
-        ? lightId
-        : darkId;
-    }
-    try {
-      await storage.set({ [THEME_ID_KEY]: themeId });
-    } catch {
-      // Extension reloaded mid-migration — the derived id still applies to
-      // this page, and the write retries on the next load.
-    }
-  }
-
-  // Remove every superseded key.
-  const stale = [
-    "jv-theme",
-    "jv-custom-cursor",
-    "jv-theme-mode",
-    "jv-theme-dark",
-    "jv-theme-light",
-  ].filter((key) => key in legacy);
-  if (stale.length > 0) {
-    try {
-      await storage.remove(stale);
-    } catch {
-      // Extension reloaded mid-migration — the stale keys are inert, and the
-      // cleanup retries on the next load.
-    }
-  }
-
-  const stored = await storage.get({ [CUSTOM_THEMES_KEY]: "[]" });
   let customs: Base16Scheme[] = [];
   try {
     const parsed = JSON.parse(stored[CUSTOM_THEMES_KEY] as string) as unknown;
