@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { parseNdjson, parseNdjsonLines } from "./ndjson";
+import * as losslessNumbers from "./lossless-numbers";
 import {
   parseWithExactNumbers,
   stringifyWithExactNumbers,
@@ -23,6 +24,15 @@ function countLineParses(raw: string, run: () => void): number {
   const spy = vi.spyOn(JSON, "parse");
   run();
   return spy.mock.calls.filter((call) => call[0] !== raw).length;
+}
+
+// Counts the whole-document scans for lossy number tokens. The scan is the
+// expensive part of the always-on reviver path — four regex passes over the
+// entire text — so a document that is about to be rejected must not run it.
+function countLossyScans(run: () => void): number {
+  const spy = vi.spyOn(losslessNumbers, "mayContainLossyNumbers");
+  run();
+  return spy.mock.calls.length;
 }
 
 describe("parseNdjson", () => {
@@ -141,10 +151,12 @@ describe("parseNdjson", () => {
   });
 
   test.runIf(hasReviverSource)(
-    "parses each line exactly once when the document needs the reviver",
+    "parses the first line twice when the document needs the reviver, every other line once",
     () => {
       const raw = '{"a": 1}\n{"b": 9007199254740993}\n{"c": 3}';
-      expect(countLineParses(raw, () => parseNdjson(raw))).toBe(3);
+      // The first line is parsed plainly to validate it before the scan runs,
+      // then again with the reviver once the scan says the reviver is needed.
+      expect(countLineParses(raw, () => parseNdjson(raw))).toBe(4);
     }
   );
 
@@ -154,6 +166,24 @@ describe("parseNdjson", () => {
     expect(countLineParses(raw, () => (result = parseNdjson(raw)))).toBe(2);
     expect(result).toBeNull();
   });
+
+  test("does not scan the document when the first line is not JSON", () => {
+    let result: unknown;
+    const scans = countLossyScans(() => {
+      result = parseNdjson("hello world\nthis is not json\n- a list item");
+    });
+
+    expect(result).toBeNull();
+    expect(scans).toBe(0);
+  });
+
+  test.runIf(hasReviverSource)(
+    "scans the document once when the first line is JSON",
+    () => {
+      const raw = '{"a": 1}\n{"b": 2}\n{"c": 3}';
+      expect(countLossyScans(() => parseNdjson(raw))).toBe(1);
+    }
+  );
 
   test("detects array-per-line NDJSON", () => {
     const result = parseNdjson("[1]\n[2]");
@@ -220,6 +250,18 @@ describe("parseNdjsonLines", () => {
       expect(
         stringifyWithExactNumbers(result.data, result.exactNumbers)
       ).toBe('[9007199254740993,{"id":9007199254740993}]');
+    }
+  );
+
+  test.runIf(hasReviverSource)(
+    "keeps a lossy first line exact, even though it is validated plainly first",
+    () => {
+      const raw = '9007199254740993\n{"id": 1}';
+      const result = parseNdjsonLines(raw)!;
+
+      expect(result.exactNumbers!.get(result.data)?.get("0")).toBe(
+        "9007199254740993"
+      );
     }
   );
 
