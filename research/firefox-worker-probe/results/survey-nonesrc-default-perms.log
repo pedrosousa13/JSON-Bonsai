@@ -1,0 +1,14 @@
+Running web extension from /Users/pedrosousa/Documents/projects/experiments/json-bonsai/research/firefox-worker-probe/ext
+Setting custom Firefox preferences: {
+  "browser.aboutwelcome.enabled": false,
+  "browser.startup.homepage_override.mstone": "ignore",
+  "datareporting.policy.dataSubmissionEnabled": false,
+  "browser.shell.checkDefaultBrowser": false,
+  "app.update.auto": false,
+  "app.update.enabled": false,
+  "app.update.background.scheduling.enabled": false,
+  "app.update.service.enabled": false
+}
+Use --verbose or --devtools to see logging
+Installed /Users/pedrosousa/Documents/projects/experiments/json-bonsai/research/firefox-worker-probe/ext as a temporary add-on
+Automatic extension reloading has been disabled
