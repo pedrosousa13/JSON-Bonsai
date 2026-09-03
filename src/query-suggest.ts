@@ -93,8 +93,30 @@ export function suggest(
   return out;
 }
 
+// Index of the `]` closing the bracket segment opening at `open`. Quote-aware:
+// buildPath emits keys as JSON strings, so a `]` inside the quoted key (and any
+// `\`-escaped char) must not end the segment. Falls back to the end of the text
+// on an unterminated segment, which buildPath never emits.
+function closingBracket(text: string, open: number): number {
+  let quoted = false;
+  for (let i = open + 1; i < text.length; i += 1) {
+    const c = text[i];
+    if (quoted) {
+      if (c === "\\") i += 1;
+      else if (c === '"') quoted = false;
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === "]") {
+      return i;
+    }
+  }
+  return text.length;
+}
+
 // Converts a buildPath() string ("data", "data.a.b", `data["a b"][0].c`) into
-// an equivalent JMESPath expression. O(depth) per call — runs once per click.
+// an equivalent JMESPath expression. Quoted segments are already JSON-escaped
+// by buildPath, which is exactly the JMESPath quoted-identifier form, so they
+// pass through as-is. O(depth) per call — runs once per click.
 export function toJmespath(nodePath: string): string {
   if (nodePath === "data") return "@";
   // Drop the leading "data" root; everything after it is segments.
@@ -113,7 +135,7 @@ export function toJmespath(nodePath: string): string {
       out += first ? key : `.${key}`;
       i = j;
     } else if (ch === "[") {
-      const close = rest.indexOf("]", i);
+      const close = closingBracket(rest, i);
       const inner = rest.slice(i + 1, close);
       if (inner.startsWith('"')) {
         // Quoted string key: `["a b"]` → `."a b"` (or leading `"a b"`).

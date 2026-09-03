@@ -64,6 +64,18 @@ describe("buildTreeModel", () => {
     expect(plainNode.searchValue).toBe("1");
   });
 
+  test("JSON-escapes quoted path segments", () => {
+    const model = buildTreeModel({ "a\\b": 1, 'say "hi"': 2, "arr]x": 3, "": 4 });
+
+    expect(model.nodes.map((node) => node.path)).toEqual([
+      "data",
+      'data["a\\\\b"]',
+      'data["say \\"hi\\""]',
+      'data["arr]x"]',
+      'data[""]',
+    ]);
+  });
+
   test("flags nodes that contain nested containers", () => {
     const model = buildTreeModel({ outer: { inner: 1 }, scalar: 2 });
     const root = model.nodes[model.rootId];

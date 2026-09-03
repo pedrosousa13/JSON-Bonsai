@@ -59,7 +59,9 @@ function buildPath(
   if (typeof key === "string" && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)) {
     return `${parentPath}.${key}`;
   }
-  return `${parentPath}["${key}"]`;
+  // JSON string escaping, so `\` and `"` in the key survive the round trip and
+  // the segment is a valid JMESPath quoted identifier (see toJmespath).
+  return `${parentPath}[${JSON.stringify(String(key))}]`;
 }
 
 function typeOf(value: JsonValue): JsonNodeType {
