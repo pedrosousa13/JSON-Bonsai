@@ -4,10 +4,7 @@ import {
   type TreeModel,
   isContainerNode,
 } from "./tree-model";
-import {
-  createLocalTreeSearchIndex,
-  type TreeSearchIndex,
-} from "./tree-worker-client";
+import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
 
 const VIRTUAL_ROW_HEIGHT = 24;
 const VIRTUAL_OVERSCAN = 30;

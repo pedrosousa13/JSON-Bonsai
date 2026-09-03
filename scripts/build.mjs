@@ -9,7 +9,7 @@ const watch = process.argv.includes("--watch");
 
 // One IIFE bundle per entry. content.ts imports viewer.css, so esbuild emits
 // dist/content.css alongside dist/content.js (manifest references both).
-const entries = ["content", "page-script", "tree-worker"];
+const entries = ["content", "page-script"];
 
 const options = (name) => ({
   entryPoints: [resolve(root, `src/${name}.ts`)],

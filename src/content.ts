@@ -1,11 +1,10 @@
 import { buildTreeModel, type JsonValue, type TreeModel } from "./tree-model";
 import { createTreeView, setupHoverPath, type TreeViewController } from "./viewer";
 import {
-  createBestAvailableTreeSearchIndex,
+  compileSearchRegex,
   createLocalTreeSearchIndex,
   type TreeSearchIndex,
-} from "./tree-worker-client";
-import { compileSearchRegex } from "./tree-search";
+} from "./tree-search";
 import { toJsonSchema } from "./schema";
 import {
   BUILTIN_SCHEMES,
@@ -502,12 +501,6 @@ async function init(): Promise<void> {
     saveOriginPrefs(prefs);
   }
 
-  function createSearchIndexFor(treeModel: TreeModel): TreeSearchIndex {
-    return typeof Worker === "function"
-      ? createBestAvailableTreeSearchIndex(treeModel)
-      : createLocalTreeSearchIndex(treeModel);
-  }
-
   // (Re)builds the tree view, level buttons and node stats for the given
   // model. Used for the initial mount, query results, and restore. The search
   // index lifecycle is owned by the callers.
@@ -573,7 +566,7 @@ async function init(): Promise<void> {
     setView(originPrefs.view);
   }
 
-  originalSearchIndex = createSearchIndexFor(model);
+  originalSearchIndex = createLocalTreeSearchIndex(model);
   await mountTree(model, originalSearchIndex);
 
   // Reapply this origin's saved depth (skipping the write — the payload
@@ -1275,7 +1268,7 @@ async function init(): Promise<void> {
     // through, so preserved numbers survive in unprojected subtrees.
     const resultModel = buildTreeModel(outcome.result, exactNumbers);
     resultSearchIndex?.dispose();
-    resultSearchIndex = createSearchIndexFor(resultModel);
+    resultSearchIndex = createLocalTreeSearchIndex(resultModel);
     await mountTree(resultModel, resultSearchIndex);
     refreshTableForDocument();
     // Remember this query (and add it to history) for the origin when on.

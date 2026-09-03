@@ -28,7 +28,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-script.js", "tree-worker.js", "content.css"],
+      "resources": ["page-script.js", "content.css"],
       "matches": ["<all_urls>"]
     }
   ]

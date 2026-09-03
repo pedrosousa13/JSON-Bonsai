@@ -1,6 +1,6 @@
 import { type TreeModel, isContainerNode } from "./tree-model";
 
-export interface TreeSearchNode {
+interface TreeSearchNode {
   id: number;
   searchValue: string;
   hasLongSearchValue: boolean;
@@ -10,7 +10,7 @@ export interface TreeSearchNode {
   isContainer: boolean;
 }
 
-export interface TreeSearchMatch {
+interface TreeSearchMatch {
   nodeId: number;
   score: number;
 }
@@ -18,6 +18,15 @@ export interface TreeSearchMatch {
 export interface TreeSearchOptions {
   regex?: boolean;
 }
+
+export interface TreeSearchIndex {
+  search(query: string, options?: TreeSearchOptions): Promise<number[]>;
+  dispose(): void;
+}
+
+// Nodes scanned per event-loop task. Search runs on the main thread, so the
+// scan is chunked to keep any single task short enough to leave frames free.
+const SEARCH_SCAN_BATCH_SIZE = 500;
 
 function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase();
@@ -71,7 +80,7 @@ function matchScoreRegex(node: TreeSearchNode, regex: RegExp): number | null {
   return null;
 }
 
-export function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
+function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
   return model.nodes.map((node) => ({
     id: node.id,
     searchValue: node.searchValue,
@@ -86,7 +95,7 @@ export function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
   }));
 }
 
-export function collectTreeSearchMatches(
+function collectTreeSearchMatches(
   nodes: readonly TreeSearchNode[],
   query: string,
   start = 0,
@@ -120,7 +129,7 @@ export function collectTreeSearchMatches(
   return matches;
 }
 
-export function sortTreeSearchMatches(matches: readonly TreeSearchMatch[]): number[] {
+function sortTreeSearchMatches(matches: readonly TreeSearchMatch[]): number[] {
   return [...matches]
     .sort((left, right) =>
       left.score === right.score ? left.nodeId - right.nodeId : left.score - right.score
@@ -128,26 +137,44 @@ export function sortTreeSearchMatches(matches: readonly TreeSearchMatch[]): numb
     .map((match) => match.nodeId);
 }
 
-export function searchTreeSearchNodes(
-  nodes: readonly TreeSearchNode[],
-  query: string,
-  options?: TreeSearchOptions
-): number[] {
-  return sortTreeSearchMatches(
-    collectTreeSearchMatches(nodes, query, 0, nodes.length, options)
-  );
+// Hands control back to the event loop. A MessageChannel task is used rather
+// than setTimeout because chained timers are clamped to 4 ms once nested,
+// which would add hundreds of milliseconds to a scan of a large document.
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
 }
 
-export function hydrateTreeSearchNodes(
-  nodes: Array<{
-    id: number;
-    searchKey: string;
-    searchPath: string;
-    searchValue: string;
-    hasLongSearchValue: boolean;
-    rawStringValue?: string;
-    isContainer: boolean;
-  }>
-): TreeSearchNode[] {
-  return nodes as TreeSearchNode[];
+export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
+  const searchNodes = createTreeSearchNodes(model);
+
+  return {
+    async search(query: string, options?: TreeSearchOptions): Promise<number[]> {
+      // An empty substring query has no matches; skip iterating every batch.
+      // (Regex matching is left to collectTreeSearchMatches, which also
+      // handles invalid patterns by returning no matches.)
+      if (!options?.regex && !normalizeSearchText(query)) return [];
+
+      const matches: TreeSearchMatch[] = [];
+      const total = searchNodes.length;
+
+      for (let start = 0; start < total; start += SEARCH_SCAN_BATCH_SIZE) {
+        const end = Math.min(start + SEARCH_SCAN_BATCH_SIZE, total);
+        const batch = collectTreeSearchMatches(searchNodes, query, start, end, options);
+        for (let index = 0; index < batch.length; index += 1) matches.push(batch[index]);
+
+        if (end < total) await nextTask();
+      }
+
+      return sortTreeSearchMatches(matches);
+    },
+
+    dispose(): void {},
+  };
 }

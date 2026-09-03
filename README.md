@@ -38,7 +38,7 @@ Prune, shape, and navigate giant JSON trees — a browser extension JSON viewer 
 
 - JMESPath query bar (`Q`) — filter and reshape the JSON; the result renders as a fully interactive tree
 - Query relative to any node — "Query from here" seeds a node's path; append `| expr` to query inside that subtree, with autocomplete resolving keys against the scoped node
-- Content search in a web worker with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`); in table view, search filters the rows instead
+- Content search with match navigation (`⌘F` / `⌘G`, `Enter` / `Shift+Enter`); in table view, search filters the rows instead
 - Hover any property to see its full JSON path — click to pin, then copy
 - Per-node actions: copy any subtree's value, expand/collapse all children, "query from here" (`ƒ query`), or "query across all array items" (`ƒ all`, on nodes inside an array)
 - Copy JSON to clipboard (`C`) — copies what the active view shows (raw, pretty, schema, or query result)
@@ -160,4 +160,4 @@ After making changes, reload the extension in your browser.
 
 JSON Bonsai started as a fork of [JSON Alexander](https://github.com/wesbos/JSON-Alexander) by [Wes Bos](https://github.com/wesbos) and remains MIT licensed — see [LICENSE](LICENSE).
 
-It has since been largely rewritten. Of the four original source files only the ~15-line page bootstrap is unchanged; the viewer and content scripts were rebuilt and roughly tripled in size. Virtualized rendering, the Table and Schema views, the JMESPath query bar, web-worker search, lossless big numbers, base16 theming, per-site memory, the build scripts, and the test suite are all new. Thanks to Wes Bos for the original viewer this grew out of.
+It has since been largely rewritten. Of the four original source files only the ~15-line page bootstrap is unchanged; the viewer and content scripts were rebuilt and roughly tripled in size. Virtualized rendering, the Table and Schema views, the JMESPath query bar, chunked search, lossless big numbers, base16 theming, per-site memory, the build scripts, and the test suite are all new. Thanks to Wes Bos for the original viewer this grew out of.
