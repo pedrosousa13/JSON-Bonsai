@@ -65,6 +65,18 @@ describe("buildTreeModel", () => {
     expect(plainNode.searchValue).toBe("1");
   });
 
+  test("truncates a long search value without splitting a surrogate pair", () => {
+    // 199 plain characters then an emoji, so the 200-unit cut falls between
+    // the emoji's two halves. Indexing a lone surrogate matches nothing.
+    const value = `${"a".repeat(199)}😀${"b".repeat(20)}`;
+
+    const model = buildTreeModel({ s: value });
+    const node = model.nodes[model.pathToId.get("data.s")!];
+
+    expect(node.hasLongSearchValue).toBe(true);
+    expect(node.searchValue).toBe("a".repeat(199));
+  });
+
   test("JSON-escapes quoted path segments", () => {
     const model = buildTreeModel({ "a\\b": 1, 'say "hi"': 2, "arr]x": 3, "": 4 });
 

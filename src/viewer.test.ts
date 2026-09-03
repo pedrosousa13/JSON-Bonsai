@@ -16,14 +16,21 @@ function createContainer(): HTMLElement {
   return container;
 }
 
-// The "ƒ all" button on the rendered row for `path`. Attribute selectors are
-// awkward for paths carrying quotes, so match on the dataset instead.
-function queryAllAction(container: HTMLElement, path: string): HTMLElement {
+// The rendered row for `path`. Attribute selectors are awkward for paths
+// carrying quotes, so match on the dataset instead.
+function lineForPath(container: HTMLElement, path: string): HTMLElement {
   const row = Array.from(container.querySelectorAll<HTMLElement>(".jv-line")).find(
     (line) => line.dataset.path === path
   );
   if (!row) throw new Error(`no rendered row for path ${path}`);
-  return row.querySelector<HTMLElement>(".jv-action-query-all-node")!;
+  return row;
+}
+
+// The "ƒ all" button on the rendered row for `path`.
+function queryAllAction(container: HTMLElement, path: string): HTMLElement {
+  return lineForPath(container, path).querySelector<HTMLElement>(
+    ".jv-action-query-all-node"
+  )!;
 }
 
 function createDeferred<T>() {
@@ -447,6 +454,102 @@ describe("createTreeView", () => {
     const renderedRows = container.querySelectorAll(".jv-line").length;
     expect(renderedRows).toBeGreaterThan(0);
     expect(renderedRows).toBeLessThan(model.totalNodes);
+  });
+
+  test("truncates a long string value without splitting a surrogate pair", async () => {
+    const container = createContainer();
+    // 499 plain characters then an emoji, so the 500-unit cut falls between
+    // the emoji's two halves and a naive slice renders U+FFFD.
+    const value = `${"a".repeat(499)}😀${"b".repeat(10)}`;
+    const model = buildTreeModel({ s: value });
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    const span = container.querySelector<HTMLElement>(
+      '[data-path="data.s"] .jv-string'
+    )!;
+    expect(span.textContent).toBe(`"${"a".repeat(499)}…" (511 chars)`);
+  });
+
+  test("JSON-escapes string values and keys", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({ 'say "hi"': 'say "hi"\u0001\n' });
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    const row = lineForPath(container, 'data["say \\"hi\\""]');
+    expect(row.querySelector<HTMLElement>(".jv-key")!.textContent).toBe(
+      '"say \\"hi\\""'
+    );
+    expect(row.querySelector<HTMLElement>(".jv-string")!.textContent).toBe(
+      '"say \\"hi\\"\\u0001\\n"'
+    );
+  });
+
+  test("truncates before escaping, so the char count stays the source length", async () => {
+    const container = createContainer();
+    const value = `${'"'.repeat(500)}x`;
+    const model = buildTreeModel({ s: value });
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    const span = container.querySelector<HTMLElement>(
+      '[data-path="data.s"] .jv-string'
+    )!;
+    expect(span.textContent).toBe(`"${'\\"'.repeat(500)}…" (501 chars)`);
+  });
+
+  // Rows past MAX_PHYSICAL_HEIGHT / 24 px (~41.6k) compress the spacer by
+  // `scale`, while pooled rows keep rendering at native height. 10 million
+  // rows — the size the acceptance criterion names, scale ≈ 240 — will not run
+  // here: buildTreeModel allocates a node object per row, so it needs ~5 GB of
+  // heap and ~8 s, which kills the vitest worker under its default ceiling and
+  // only passes with --max-old-space-size raised past 12 GB. That is a cost,
+  // not a test. Measured there for the record: 35 pooled rows.
+  //
+  // So pin the property the criterion is really about at two sizes whose
+  // compression factors differ 5x: the pooled count is set by the viewport, so
+  // it stays inside the same visible-row bound and does not grow with `scale`.
+  async function pooledRowsAt(totalRows: number): Promise<number> {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel(Array.from({ length: totalRows }, (_, i) => i));
+    const treeView = createTreeView(container, model, { scrollContainer });
+    await treeView.render();
+
+    scrollContainer.scrollTop = 400_000;
+    await treeView.render();
+
+    return container.querySelectorAll(".jv-line:not([hidden])").length;
+  }
+
+  test("compressed-scrollbar regime pools about as many rows as fit on screen", async () => {
+    const viewportHeight = window.innerHeight;
+    const visibleRows = Math.ceil(viewportHeight / 24);
+
+    const atLowScale = await pooledRowsAt(200_000); // scale ≈ 4.8
+    const atHighScale = await pooledRowsAt(1_000_000); // scale ≈ 24
+
+    expect(atLowScale).toBeLessThanOrEqual(visibleRows * 2);
+    expect(atHighScale).toBeLessThanOrEqual(visibleRows * 2);
+    // Five times the compression must not cost more DOM.
+    expect(atHighScale).toBeLessThanOrEqual(atLowScale);
+  });
+
+  test("compressed-scrollbar regime still scrolls a target row into the window", async () => {
+    const scrollContainer = createContainer();
+    const container = document.createElement("div");
+    scrollContainer.appendChild(container);
+    const model = buildTreeModel(Array.from({ length: 200_000 }, (_, i) => i));
+    const treeView = createTreeView(container, model, { scrollContainer });
+
+    await treeView.render(model.pathToId.get("data[150000]")!);
+
+    expect(lineForPath(container, "data[150000]").hidden).toBe(false);
   });
 
   test("hides the all-array-items action on a key that merely looks indexed", async () => {

@@ -11,6 +11,7 @@ import {
 } from "./table";
 import { runQuery } from "./query";
 import type { JsonValue } from "./tree-model";
+import type { ExactNumberMap } from "./lossless-numbers";
 
 function createContainer(): HTMLElement {
   const container = document.createElement("div");
@@ -132,6 +133,58 @@ describe("sortRowIndices", () => {
     expect(sortRowIndices(rows, "hasOwnProperty", "asc")).toEqual([2, 0, 1]);
     expect(sortRowIndices(rows, "hasOwnProperty", "desc")).toEqual([2, 0, 1]);
   });
+
+  // 2^60 + 1 and 2^60 + 2 are distinct integers that JSON.parse rounds to the
+  // same double, so only the preserved source text can order them.
+  function exactRows(texts: string[]): {
+    rows: JsonValue[];
+    exactNumbers: ExactNumberMap;
+  } {
+    const rows: JsonValue[] = texts.map((text) => ({ id: Number(text) }));
+    const exactNumbers: ExactNumberMap = new WeakMap(
+      rows.map((row, i) => [row as object, new Map([["id", texts[i]]])])
+    );
+    return { rows, exactNumbers };
+  }
+
+  test("orders exact numbers that share a double by their source text", () => {
+    const { rows, exactNumbers } = exactRows([
+      "1152921504606846978",
+      "1152921504606846977",
+    ]);
+    expect(sortRowIndices(rows, "id", "asc", exactNumbers)).toEqual([1, 0]);
+    expect(sortRowIndices(rows, "id", "desc", exactNumbers)).toEqual([0, 1]);
+  });
+
+  test("orders negative exact numbers by value, not magnitude", () => {
+    const { rows, exactNumbers } = exactRows([
+      "-1152921504606846977",
+      "-1152921504606846978",
+    ]);
+    expect(sortRowIndices(rows, "id", "asc", exactNumbers)).toEqual([1, 0]);
+    expect(sortRowIndices(rows, "id", "desc", exactNumbers)).toEqual([0, 1]);
+  });
+
+  test("orders exact numbers of different digit lengths by value, not text", () => {
+    // 10^16 - 1 and 10^16 also share a double, and text compare puts them
+    // backwards: the larger number is the token with the smaller lead digit.
+    const { rows, exactNumbers } = exactRows([
+      "10000000000000000",
+      "9999999999999999",
+    ]);
+    expect(sortRowIndices(rows, "id", "asc", exactNumbers)).toEqual([1, 0]);
+    expect(sortRowIndices(rows, "id", "desc", exactNumbers)).toEqual([0, 1]);
+  });
+
+  test("orders an exact number against a plain one that shares its double", () => {
+    // 2^53 is exactly representable, so only its neighbour carries source text.
+    const rows: JsonValue[] = [{ id: 9007199254740993 }, { id: 9007199254740992 }];
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [rows[0] as object, new Map([["id", "9007199254740993"]])],
+    ]);
+    expect(sortRowIndices(rows, "id", "asc", exactNumbers)).toEqual([1, 0]);
+    expect(sortRowIndices(rows, "id", "desc", exactNumbers)).toEqual([0, 1]);
+  });
 });
 
 describe("createTableView", () => {
@@ -239,6 +292,38 @@ describe("createTableView", () => {
     expect(second[1].textContent).toBe("–");
     expect(second[2].className).toContain("jv-table-missing");
     expect(second[2].textContent).toBe("–");
+  });
+
+  test("truncates a long cell without splitting a surrogate pair", () => {
+    const container = createContainer();
+    // 199 plain characters then an emoji, so the 200-unit cut falls between
+    // the emoji's two halves.
+    createTableView(container, [{ s: `${"a".repeat(199)}😀b` }]);
+
+    const cell = container
+      .querySelectorAll(".jv-table-row")[0]
+      .querySelectorAll(".jv-table-cell")[1];
+    expect(cell.textContent).toBe(`${"a".repeat(199)}…`);
+  });
+
+  test("sorting an exact-number column follows the displayed digits", () => {
+    const container = createContainer();
+    const rows: JsonValue[] = [
+      { id: 1152921504606846978 },
+      { id: 1152921504606846977 },
+    ];
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [rows[0] as object, new Map([["id", "1152921504606846978"]])],
+      [rows[1] as object, new Map([["id", "1152921504606846977"]])],
+    ]);
+    createTableView(container, rows, { exactNumbers });
+
+    container.querySelector<HTMLElement>('.jv-table-th[data-column="id"]')!.click();
+
+    const texts = Array.from(container.querySelectorAll(".jv-table-row")).map(
+      (row) => row.querySelectorAll(".jv-table-cell")[1].textContent
+    );
+    expect(texts).toEqual(["1152921504606846977", "1152921504606846978"]);
   });
 
   test("notes the column cap when exceeded", () => {

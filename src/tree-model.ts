@@ -1,4 +1,5 @@
 import type { ExactNumberMap } from "./lossless-numbers";
+import { truncateCodePoints } from "./truncate";
 
 export type JsonValue =
   | string
@@ -107,7 +108,7 @@ function buildSearchValue(value: JsonValue): {
   }
 
   return {
-    searchValue: normalized.slice(0, SEARCH_VALUE_PREVIEW_LIMIT),
+    searchValue: truncateCodePoints(normalized, SEARCH_VALUE_PREVIEW_LIMIT),
     hasLongSearchValue: true,
   };
 }

@@ -156,6 +156,41 @@ test("rapid writes are debounced into the last payload", async () => {
   });
 });
 
+test("flush writes the pending payload immediately and disarms the timer", async () => {
+  installMockStorage();
+  const write = createOriginPrefsWriter("https://api.example.com");
+
+  write({ view: "raw", level: 2 });
+  write.flush();
+
+  // The write landed without waiting out the debounce...
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+  expect(await loadOriginPrefs("https://api.example.com")).toEqual({
+    view: "raw",
+    level: 2,
+  });
+
+  // ...and the cancelled timer doesn't fire a second one afterwards.
+  await vi.runAllTimersAsync();
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+});
+
+test("flush with nothing pending is a no-op", async () => {
+  installMockStorage();
+  const write = createOriginPrefsWriter("https://api.example.com");
+
+  // Never written to.
+  write.flush();
+  expect(mockSet()).not.toHaveBeenCalled();
+
+  // Already settled, so there is nothing left to flush.
+  write({ view: "raw" });
+  await vi.runAllTimersAsync();
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+  write.flush();
+  expect(mockSet()).toHaveBeenCalledTimes(1);
+});
+
 test("reapplying the loaded prefs does not write them back", async () => {
   installMockStorage();
   const initial = { view: "raw", level: 3 } as const;

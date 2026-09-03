@@ -80,4 +80,25 @@ describe("createScopeResolver", () => {
     expect(resolve("users[0]")).toEqual({ name: "Ada" });
     expect(resolve("count")).toBe(2);
   });
+
+  test("evaluates an erroring expression once (item 10)", async () => {
+    vi.resetModules();
+    const search = vi.fn(() => {
+      throw new Error("Unexpected token");
+    });
+    vi.doMock("jmespath", () => ({ search }));
+    const { createScopeResolver: mocked } = await import("./query");
+    const resolve = mocked(data);
+    expect(resolve("[invalid")).toBeNull();
+    expect(resolve("[invalid")).toBeNull();
+    expect(resolve("[invalid")).toBeNull();
+    expect(search).toHaveBeenCalledTimes(1);
+    vi.doUnmock("jmespath");
+    vi.resetModules();
+  });
+
+  test("each resolver caches against its own document", () => {
+    expect(createScopeResolver({ count: 1 })("count")).toBe(1);
+    expect(createScopeResolver({ count: 2 })("count")).toBe(2);
+  });
 });

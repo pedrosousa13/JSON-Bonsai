@@ -62,33 +62,58 @@ export async function loadOriginPrefs(origin: string): Promise<OriginPrefs> {
   }
 }
 
+export interface OriginPrefsWriter {
+  (prefs: OriginPrefs): void;
+  /** Writes any debounced payload now; a no-op when nothing is pending. */
+  flush(): void;
+}
+
 // Returns a debounced writer for this origin's prefs. Identical consecutive
 // payloads are skipped, so reapplying loaded prefs on startup doesn't
 // immediately write them back. Failures degrade silently — prefs just won't
-// persist.
+// persist. Call `flush` when the page is going away, or the last 250 ms of
+// changes are lost.
 export function createOriginPrefsWriter(
   origin: string,
   initial: OriginPrefs = {},
   debounceMs: number = WRITE_DEBOUNCE_MS
-): (prefs: OriginPrefs) => void {
+): OriginPrefsWriter {
   let lastQueued = JSON.stringify(initial);
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending: OriginPrefs | null = null;
 
-  return (prefs) => {
+  function write(): void {
+    if (pending === null) return;
+    const snapshot = pending;
+    pending = null;
+    try {
+      void chrome.storage.local.set({ [prefsKey(origin)]: snapshot }).catch(() => {});
+    } catch {
+      // Storage gone mid-session — degrade silently.
+    }
+  }
+
+  const writer: OriginPrefsWriter = (prefs) => {
     const serialized = JSON.stringify(prefs);
     if (serialized === lastQueued) return;
     lastQueued = serialized;
     if (!storageAvailable()) return;
 
-    const snapshot = { ...prefs };
+    pending = { ...prefs };
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      try {
-        void chrome.storage.local.set({ [prefsKey(origin)]: snapshot }).catch(() => {});
-      } catch {
-        // Storage gone mid-session — degrade silently.
-      }
+      write();
     }, debounceMs);
   };
+
+  writer.flush = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    write();
+  };
+
+  return writer;
 }
