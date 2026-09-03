@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { runQuery } from "./query";
-import { buildTreeModel, type JsonValue } from "./tree-model";
+import { buildTreeModel, findNodeByPath, type JsonValue } from "./tree-model";
 import {
   JMESPATH_FUNCTIONS,
   collectKeyUniverse,
@@ -336,7 +336,7 @@ describe("query from here on keys that need escaping", () => {
       });
 
       // The child proves the scanner resumes after the quoted segment.
-      const child = model.nodes[model.pathToId.get(`${node.path}.id`)!];
+      const child = findNodeByPath(model, `${node.path}.id`)!;
       expect(runQuery(doc, toJmespath(child.path))).toEqual({
         ok: true,
         result: 7,
@@ -355,7 +355,7 @@ describe("query from here on keys that need escaping", () => {
     });
 
     // The element proves the scanner resumes after the quoted segment.
-    const element = model.nodes[model.pathToId.get(`${node.path}[1]`)!];
+    const element = findNodeByPath(model, `${node.path}[1]`)!;
     expect(runQuery(doc, toJmespath(element.path))).toEqual({
       ok: true,
       result: 20,

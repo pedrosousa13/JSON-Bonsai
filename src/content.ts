@@ -6,6 +6,7 @@ import {
   type TreeSearchIndex,
 } from "./tree-search";
 import { toJsonSchema } from "./schema";
+import { flashLabel, FLASH_LABEL_MS } from "./flash-label";
 import {
   BUILTIN_SCHEMES,
   DEFAULT_DARK_ID,
@@ -499,8 +500,8 @@ async function init(): Promise<void> {
   // persistence while a query result is showing or when restoring saved prefs.
   function applyLevel(selection: number | "all", persist = true): void {
     currentLevel = selection === "all" ? "all" : Math.max(1, Math.min(selection, maxTreeDepth));
-    if (currentLevel === "all") void treeView.expandAll();
-    else void treeView.collapseToLevel(currentLevel);
+    if (currentLevel === "all") treeView.expandAll();
+    else treeView.collapseToLevel(currentLevel);
     renderLevelControl();
     if (persist && activeQueryResult === null) {
       originalLevelSelection = currentLevel;
@@ -566,7 +567,7 @@ async function init(): Promise<void> {
 
     const { maxDepth, totalNodes } = treeView.getStats();
     info.textContent = `${totalNodes} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
-    await treeView.render();
+    treeView.render();
     syncLevelControl(maxDepth, initialExpansionDepth);
 
     // The previous view's search state is gone with it; reset the search UI.
@@ -625,14 +626,14 @@ async function init(): Promise<void> {
     if (target.classList.contains("jv-toggle") || target.classList.contains("jv-preview")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) {
-        void treeView.toggleNode(Number(line.dataset.nodeId));
+        treeView.toggleNode(Number(line.dataset.nodeId));
       }
     }
 
     if (target.classList.contains("jv-action-children")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) {
-        void treeView.toggleAllChildren(Number(line.dataset.nodeId));
+        treeView.toggleAllChildren(Number(line.dataset.nodeId));
       }
     }
 
@@ -672,11 +673,7 @@ async function init(): Promise<void> {
           stringifyWithExactNumbers(selectedValue, exactNumbers, 2)
       );
 
-      const originalLabel = target.textContent;
-      target.textContent = "copied!";
-      setTimeout(() => {
-        target.textContent = originalLabel;
-      }, 1000);
+      flashLabel(target, "copied!");
     }
   });
 
@@ -834,12 +831,14 @@ async function init(): Promise<void> {
       : textView("formatted");
 
     navigator.clipboard.writeText(contentToCopy).then(() => {
-      copyLabel.textContent = "Copied!";
       copyKbd.classList.add("jv-hidden");
+      // Not flashLabel: this label is re-derived rather than restored, because
+      // switching view during the flash changes what the button should say.
+      copyLabel.textContent = "Copied!";
       setTimeout(() => {
         copyLabel.textContent = copyLabelText();
         copyKbd.classList.remove("jv-hidden");
-      }, 1000);
+      }, FLASH_LABEL_MS);
     });
   }
 
@@ -897,7 +896,7 @@ async function init(): Promise<void> {
       // error instead of scanning the whole tree for zero matches.
       if (searchRegexEnabled && query && compileSearchRegex(query) === null) {
         searchRegexError = true;
-        await treeView.clearSearch();
+        treeView.clearSearch();
         updateSearchUi();
         return;
       }
@@ -1129,7 +1128,8 @@ async function init(): Promise<void> {
     }
     if (searchInput.value || treeView.getSearchState().query) {
       searchInput.value = "";
-      void treeView.clearSearch().then(updateSearchUi);
+      treeView.clearSearch();
+      updateSearchUi();
     }
     if (tableView !== null && tableView.getFilterState().query) {
       tableView.setFilter("");
@@ -1154,7 +1154,8 @@ async function init(): Promise<void> {
       if (searchInput.value !== currentQuery) {
         void commitSearch(searchInput.value);
       } else {
-        void treeView.stepSearch(e.shiftKey ? -1 : 1).then(updateSearchUi);
+        treeView.stepSearch(e.shiftKey ? -1 : 1);
+        updateSearchUi();
       }
       return;
     }
@@ -1177,11 +1178,13 @@ async function init(): Promise<void> {
   });
 
   searchPrevBtn.addEventListener("click", () => {
-    void treeView.stepSearch(-1).then(updateSearchUi);
+    treeView.stepSearch(-1);
+    updateSearchUi();
   });
 
   searchNextBtn.addEventListener("click", () => {
-    void treeView.stepSearch(1).then(updateSearchUi);
+    treeView.stepSearch(1);
+    updateSearchUi();
   });
 
   searchCloseBtn.addEventListener("click", () => {
@@ -1209,7 +1212,8 @@ async function init(): Promise<void> {
         openSearchPanel();
         return;
       }
-      void treeView.stepSearch(e.shiftKey ? -1 : 1).then(updateSearchUi);
+      treeView.stepSearch(e.shiftKey ? -1 : 1);
+      updateSearchUi();
       return;
     }
 

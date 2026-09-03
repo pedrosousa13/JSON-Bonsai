@@ -35,7 +35,6 @@ export interface JsonNode {
   // carries a real array index, so it can be generalized with `[*]`.
   inArray: boolean;
   isLast: boolean;
-  childCount: number;
   label: string;
   hasNestedContainers: boolean;
   searchKey: string;
@@ -49,7 +48,6 @@ export interface TreeModel {
   rootId: number;
   maxDepth: number;
   totalNodes: number;
-  pathToId: Map<string, number>;
 }
 
 const SEARCH_VALUE_PREVIEW_LIMIT = 200;
@@ -135,7 +133,6 @@ export function buildTreeModel(
   exactNumbers?: ExactNumberMap | null
 ): TreeModel {
   const nodes: JsonNode[] = [];
-  const pathToId = new Map<string, number>();
   let maxDepth = 0;
   let rootId = 0;
 
@@ -181,7 +178,6 @@ export function buildTreeModel(
       isArrayElement,
       inArray,
       isLast,
-      childCount,
       label,
       hasNestedContainers: false,
       searchKey: key === null ? "" : normalizeSearchText(String(key)),
@@ -191,7 +187,6 @@ export function buildTreeModel(
     };
 
     nodes.push(node);
-    pathToId.set(path, node.id);
     if (depth > maxDepth) maxDepth = depth;
     if (parentId === null) {
       rootId = node.id;
@@ -251,6 +246,10 @@ export function buildTreeModel(
     rootId,
     maxDepth,
     totalNodes: nodes.length,
-    pathToId,
   };
+}
+
+// Test seam: production code always has a node id in hand, so this is unused outside tests.
+export function findNodeByPath(model: TreeModel, path: string): JsonNode | undefined {
+  return model.nodes.find((node) => node.path === path);
 }

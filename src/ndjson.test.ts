@@ -6,7 +6,7 @@ import {
   parseWithExactNumbers,
   stringifyWithExactNumbers,
 } from "./lossless-numbers";
-import { buildTreeModel } from "./tree-model";
+import { buildTreeModel, findNodeByPath } from "./tree-model";
 
 // Reviver source access needs V8 11.4+ (Node 21+, Chrome 114+); the lossless
 // assertions degrade to plain parse below it, so they are guarded.
@@ -234,8 +234,8 @@ describe("parseNdjsonLines", () => {
       const model = buildTreeModel(result.data, result.exactNumbers);
 
       // numberText is what the viewer renders and what marks a node exact.
-      const bare = model.nodes[model.pathToId.get("data[0]")!];
-      const nested = model.nodes[model.pathToId.get("data[1].id")!];
+      const bare = findNodeByPath(model, "data[0]")!;
+      const nested = findNodeByPath(model, "data[1].id")!;
       expect(bare.numberText).toBe("9007199254740993");
       expect(nested.numberText).toBe("9007199254740993");
     }
