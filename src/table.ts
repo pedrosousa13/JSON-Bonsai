@@ -8,6 +8,7 @@ import {
 } from "./csv";
 import { truncateCodePoints } from "./truncate";
 import { flashLabel } from "./flash-label";
+import { createVirtualScroller } from "./virtual-scroller";
 
 const EXPORT_FILENAMES: Record<DelimitedFormat, string> = {
   csv: "json-bonsai-export.csv",
@@ -364,9 +365,18 @@ export function createTableView(
   // Object rows hold one entry per column ("" = key absent); non-object rows
   // hold the single value they display in the first column.
   let searchTexts: Array<string[] | string> | null = null;
-  let renderScheduled = false;
 
-  const rowPool: TablePoolRow[] = [];
+  const scroller = createVirtualScroller<TablePoolRow>({
+    scrollContainer,
+    spacer,
+    rowsLayer,
+    rowHeight: TABLE_ROW_HEIGHT,
+    overscan: TABLE_OVERSCAN,
+    getRowCount: () => order.length,
+    createRow: createPoolRow,
+    bindRow: (poolRow, rowIndex) => applyPoolRow(poolRow, order[rowIndex]),
+    isPaused: () => container.classList.contains("jv-hidden"),
+  });
 
   function exactNumberText(
     holder: object,
@@ -509,14 +519,6 @@ export function createTableView(
     return { line, indexCell, cells, lastRowIndex: -1 };
   }
 
-  function ensurePoolSize(size: number): void {
-    while (rowPool.length < size) {
-      const row = createPoolRow();
-      rowPool.push(row);
-      rowsLayer.appendChild(row.line);
-    }
-  }
-
   function applyPoolRow(poolRow: TablePoolRow, rowIndex: number): void {
     if (poolRow.lastRowIndex === rowIndex) return;
     poolRow.lastRowIndex = rowIndex;
@@ -549,53 +551,9 @@ export function createTableView(
     return cellTextMatches(rowIndex, columnIndex) ? `${base} jv-search-match` : base;
   }
 
-  function renderWindow(): void {
-    renderScheduled = false;
-    // Another view owns the shared scroll container while the table is
-    // hidden; rendering would react to that view's scroll position.
-    if (container.classList.contains("jv-hidden")) return;
-
-    const totalRows = order.length;
-    spacer.style.height = `${totalRows * TABLE_ROW_HEIGHT}px`;
-
-    const viewportHeight =
-      scrollContainer.clientHeight || window.innerHeight || 800;
-    const scrollTop = Math.max(
-      0,
-      Math.min(scrollContainer.scrollTop, totalRows * TABLE_ROW_HEIGHT)
-    );
-    const startIndex = Math.max(
-      0,
-      Math.floor(scrollTop / TABLE_ROW_HEIGHT) - TABLE_OVERSCAN
-    );
-    const endIndex = Math.min(
-      totalRows,
-      Math.ceil((scrollTop + viewportHeight) / TABLE_ROW_HEIGHT) + TABLE_OVERSCAN
-    );
-
-    rowsLayer.style.transform = `translateY(${startIndex * TABLE_ROW_HEIGHT}px)`;
-
-    const windowSize = Math.max(0, endIndex - startIndex);
-    ensurePoolSize(windowSize);
-    for (let i = 0; i < windowSize; i += 1) {
-      const poolRow = rowPool[i];
-      applyPoolRow(poolRow, order[startIndex + i]);
-      poolRow.line.hidden = false;
-    }
-    for (let i = windowSize; i < rowPool.length; i += 1) {
-      rowPool[i].line.hidden = true;
-    }
-  }
-
-  function scheduleWindowRender(): void {
-    if (renderScheduled) return;
-    renderScheduled = true;
-    window.requestAnimationFrame(() => renderWindow());
-  }
-
   function invalidatePool(): void {
-    for (let i = 0; i < rowPool.length; i += 1) {
-      rowPool[i].lastRowIndex = -1;
+    for (const poolRow of scroller.pool()) {
+      poolRow.lastRowIndex = -1;
     }
   }
 
@@ -650,23 +608,18 @@ export function createTableView(
       headerCells[c].classList.toggle("jv-search-match", matchedColumns.has(c));
     }
     invalidatePool();
-    renderWindow();
+    scroller.render();
   }
 
   function currentFilterState(): TableFilterState {
     return { query: filterQuery, shown: order.length, total: data.length };
   }
 
-  function onScroll(): void {
-    scheduleWindowRender();
-  }
-
-  scrollContainer.addEventListener("scroll", onScroll);
-  renderWindow();
+  scroller.render();
 
   return {
     refresh(): void {
-      scheduleWindowRender();
+      scroller.schedule();
     },
     setFilter(query: string): TableFilterState {
       const normalized = query.trim().toLowerCase();
@@ -685,7 +638,7 @@ export function createTableView(
       return currentFilterState();
     },
     dispose(): void {
-      scrollContainer.removeEventListener("scroll", onScroll);
+      scroller.dispose();
       container.innerHTML = "";
     },
   };
