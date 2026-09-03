@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { parseNdjson, parseNdjsonLines } from "./ndjson";
 import {
@@ -12,6 +12,18 @@ import { buildTreeModel } from "./tree-model";
 const hasReviverSource = parseWithExactNumbers("{}").exactNumbers !== null;
 const hasRawJSON =
   typeof (JSON as { rawJSON?: unknown }).rawJSON === "function";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// Counts the parses of each individual line, ignoring the whole-document parse
+// `parseNdjson` uses to decide the text is not a single JSON value.
+function countLineParses(raw: string, run: () => void): number {
+  const spy = vi.spyOn(JSON, "parse");
+  run();
+  return spy.mock.calls.filter((call) => call[0] !== raw).length;
+}
 
 describe("parseNdjson", () => {
   test("parses three JSON objects, one per line, into an array of three", () => {
@@ -123,6 +135,26 @@ describe("parseNdjson", () => {
     }
   );
 
+  test("parses each line exactly once", () => {
+    const raw = '{"a": 1}\n{"b": 2}\n{"c": 3}';
+    expect(countLineParses(raw, () => parseNdjson(raw))).toBe(3);
+  });
+
+  test.runIf(hasReviverSource)(
+    "parses each line exactly once when the document needs the reviver",
+    () => {
+      const raw = '{"a": 1}\n{"b": 9007199254740993}\n{"c": 3}';
+      expect(countLineParses(raw, () => parseNdjson(raw))).toBe(3);
+    }
+  );
+
+  test("stops parsing lines at the first one that is not JSON", () => {
+    const raw = '{"a": 1}\nnot json\n{"c": 3}';
+    let result: unknown;
+    expect(countLineParses(raw, () => (result = parseNdjson(raw)))).toBe(2);
+    expect(result).toBeNull();
+  });
+
   test("detects array-per-line NDJSON", () => {
     const result = parseNdjson("[1]\n[2]");
 
@@ -137,6 +169,11 @@ describe("parseNdjsonLines", () => {
 
     expect(result).not.toBeNull();
     expect(result!.data).toEqual([1, 2]);
+  });
+
+  test("parses each line exactly once", () => {
+    const raw = '{"a": 1}\n{"b": 2}\n{"c": 3}';
+    expect(countLineParses(raw, () => parseNdjsonLines(raw))).toBe(3);
   });
 
   test.runIf(hasReviverSource)(
