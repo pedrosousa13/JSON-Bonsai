@@ -153,6 +153,7 @@ function nextTask(): Promise<void> {
 
 export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
   const searchNodes = createTreeSearchNodes(model);
+  let disposed = false;
 
   return {
     async search(query: string, options?: TreeSearchOptions): Promise<number[]> {
@@ -165,9 +166,15 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
       const total = searchNodes.length;
 
       for (let start = 0; start < total; start += SEARCH_SCAN_BATCH_SIZE) {
+        // Disposal during a chunked scan abandons the remaining batches and
+        // resolves empty: the caller is tearing this index down, and the
+        // viewer discards a superseded search's ids anyway. Resolving rather
+        // than rejecting keeps dispose() safe on the ordinary replace path.
+        if (disposed) return [];
+
         const end = Math.min(start + SEARCH_SCAN_BATCH_SIZE, total);
         const batch = collectTreeSearchMatches(searchNodes, query, start, end, options);
-        for (let index = 0; index < batch.length; index += 1) matches.push(batch[index]);
+        matches.push(...batch);
 
         if (end < total) await nextTask();
       }
@@ -175,6 +182,8 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
       return sortTreeSearchMatches(matches);
     },
 
-    dispose(): void {},
+    dispose(): void {
+      disposed = true;
+    },
   };
 }

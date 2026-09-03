@@ -474,7 +474,7 @@ async function init(): Promise<void> {
   let treeView!: TreeViewController;
   let treeMounted = false;
   // The original document's index lives for the whole page so swapping to a
-  // query result and back never pays the worker re-indexing cost again.
+  // query result and back never rebuilds its per-node search strings again.
   let originalSearchIndex: TreeSearchIndex | null = null;
   let resultSearchIndex: TreeSearchIndex | null = null;
   // Last level button the user picked on the original tree ("all" = expand
@@ -819,8 +819,8 @@ async function init(): Promise<void> {
       // The table filter is substring-only; regex mode applies to the tree.
       tableView.setFilter(query);
     } else {
-      // Validate the regex client-side first so an invalid pattern shows an
-      // inline error and never reaches the worker.
+      // Validate the regex up front so an invalid pattern shows an inline
+      // error instead of scanning the whole tree for zero matches.
       if (searchRegexEnabled && query && compileSearchRegex(query) === null) {
         searchRegexError = true;
         await treeView.clearSearch();

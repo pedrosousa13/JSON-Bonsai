@@ -71,9 +71,22 @@ describe("substring search (regex off)", () => {
 
 describe("chunked scanning", () => {
   // Larger than one scan batch, so the index has to span several tasks.
+  // 10001 nodes at 500 per batch is 21 batches, so a full scan needs 20 tasks.
   const largeModel = buildTreeModel(
     Array.from({ length: 5000 }, (_, item) => ({ tag: `item-${item}` }))
   );
+
+  // Yields one event-loop task, the same way the scan does between batches.
+  function eventLoopTurn(): Promise<void> {
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        resolve();
+      };
+      channel.port2.postMessage(null);
+    });
+  }
 
   test("scans a multi-batch model across event-loop tasks", async () => {
     const largeIndex = createLocalTreeSearchIndex(largeModel);
@@ -104,5 +117,23 @@ describe("chunked scanning", () => {
 
     for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
     expect(settled).toBe(true);
+  });
+
+  test("dispose stops an in-flight scan before its remaining batches run", async () => {
+    const largeIndex = createLocalTreeSearchIndex(largeModel);
+
+    let settled = false;
+    const pending = largeIndex.search("item-1023").then((matches) => {
+      settled = true;
+      return matches;
+    });
+    largeIndex.dispose();
+
+    // A scan that ran to completion would need 20 tasks; settling within a
+    // handful proves the batches after the disposal never ran.
+    for (let turn = 0; turn < 4; turn += 1) await eventLoopTurn();
+    expect(settled).toBe(true);
+
+    await expect(pending).resolves.toEqual([]);
   });
 });
