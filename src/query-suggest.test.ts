@@ -243,6 +243,41 @@ describe("toJmespath", () => {
       'items[2]."weird key".id'
     );
   });
+
+  test("a ] inside a quoted key does not end the bracket segment", () => {
+    expect(toJmespath('data["arr]x"].id')).toBe('"arr]x".id');
+  });
+
+  test("an escaped quote inside a quoted key does not end the bracket segment", () => {
+    expect(toJmespath('data["say \\"]\\""].id')).toBe('"say \\"]\\"".id');
+  });
+});
+
+// "Query from here" must survive keys that need JSON escaping: the model's path
+// builder escapes them, toJmespath keeps them intact, and jmespath resolves the
+// clicked node. End to end against the real jmespath dependency.
+describe("query from here on keys that need escaping", () => {
+  const AWKWARD_KEYS = ["a\\b", 'say "hi"', "arr]x", ""];
+
+  for (const key of AWKWARD_KEYS) {
+    test(`round-trips ${JSON.stringify(key)} through model, convert and query`, () => {
+      const doc: JsonValue = { items: [{ [key]: { id: 7 } }] };
+      const model = buildTreeModel(doc);
+      const node = model.nodes.find((n) => n.key === key)!;
+
+      expect(runQuery(doc, toJmespath(node.path))).toEqual({
+        ok: true,
+        result: { id: 7 },
+      });
+
+      // The child proves the scanner resumes after the quoted segment.
+      const child = model.nodes[model.pathToId.get(`${node.path}.id`)!];
+      expect(runQuery(doc, toJmespath(child.path))).toEqual({
+        ok: true,
+        result: 7,
+      });
+    });
+  }
 });
 
 describe("projectLastIndex", () => {
