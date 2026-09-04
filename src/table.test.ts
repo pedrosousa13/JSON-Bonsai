@@ -326,6 +326,78 @@ describe("createTableView", () => {
     expect(texts).toEqual(["1152921504606846977", "1152921504606846978"]);
   });
 
+  test("marks a cell whose exact source text is unavailable", () => {
+    const container = createContainer();
+    // What a projection hands the table: the exact text is recorded against
+    // the parsed holder, not the rows being rendered (issue #87).
+    const parsed = { id: 9007199254740993 };
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [parsed as object, new Map([["id", "9007199254740993"]])],
+    ]);
+    const rows: JsonValue[] = [{ id: parsed.id, small: 1 }];
+    createTableView(container, rows, { exactNumbers });
+
+    const cells = container
+      .querySelectorAll(".jv-table-row")[0]
+      .querySelectorAll<HTMLElement>(".jv-table-cell");
+    expect(cells[1].className).toContain("jv-number-rounded");
+    expect(cells[1].textContent).toBe("9007199254740992 ⚠");
+    expect(cells[1].title).toContain("exact source text");
+    // A safe integer stays plain, with no leftover tooltip.
+    expect(cells[2].className).not.toContain("jv-number-rounded");
+    expect(cells[2].textContent).toBe("1");
+    expect(cells[2].title).toBe("");
+  });
+
+  test("leaves cells unmarked when their exact source text resolves", () => {
+    const container = createContainer();
+    const rows: JsonValue[] = [{ id: 9007199254740993 }];
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [rows[0] as object, new Map([["id", "9007199254740993"]])],
+    ]);
+    createTableView(container, rows, { exactNumbers });
+
+    const cell = container
+      .querySelectorAll(".jv-table-row")[0]
+      .querySelectorAll<HTMLElement>(".jv-table-cell")[1];
+    expect(cell.className).not.toContain("jv-number-rounded");
+    expect(cell.textContent).toBe("9007199254740993");
+    expect(cell.title).toBe("");
+  });
+
+  test("marks nothing when the engine has no exact numbers at all", () => {
+    // exactNumbers null: exact and rounded are indistinguishable, so a source
+    // that genuinely said the rounded value must not be accused.
+    const container = createContainer();
+    createTableView(container, [{ id: 9007199254740993 }], { exactNumbers: null });
+
+    const cell = container
+      .querySelectorAll(".jv-table-row")[0]
+      .querySelectorAll<HTMLElement>(".jv-table-cell")[1];
+    expect(cell.className).not.toContain("jv-number-rounded");
+    expect(cell.textContent).toBe("9007199254740992");
+    expect(cell.title).toBe("");
+  });
+
+  test("the marker stays out of the CSV export and the filter text", async () => {
+    const container = createContainer();
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    const view = createTableView(container, [{ id: 9007199254740993 }], {
+      exactNumbers: new WeakMap(),
+    });
+
+    Array.from(container.querySelectorAll<HTMLButtonElement>(".jv-table-export-btn"))
+      .find((btn) => btn.textContent === "Copy CSV")!
+      .click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith("id\r\n9007199254740992");
+
+    // Searching the digits still matches; searching the marker does not.
+    expect(view.setFilter("9007199254740992").shown).toBe(1);
+    expect(view.setFilter("⚠").shown).toBe(0);
+  });
+
   test("notes the column cap when exceeded", () => {
     const wide: { [key: string]: JsonValue } = {};
     for (let i = 0; i < TABLE_COLUMN_CAP + 2; i += 1) wide[`k${i}`] = i;

@@ -1,5 +1,10 @@
 import type { JsonValue } from "./tree-model";
-import type { ExactNumberMap } from "./lossless-numbers";
+import {
+  exactTextUnavailable,
+  ROUNDED_NUMBER_MARKER,
+  ROUNDED_NUMBER_TITLE,
+  type ExactNumberMap,
+} from "./lossless-numbers";
 import {
   serializeDelimited,
   type DelimitedField,
@@ -232,12 +237,16 @@ function exportCellValue(
   return String(value);
 }
 
-function cellClass(value: JsonValue | undefined): string {
+function cellClass(value: JsonValue | undefined, isRounded = false): string {
   if (value === undefined) return "jv-table-cell jv-table-missing";
   if (value === null) return "jv-table-cell jv-null";
   if (value === "") return "jv-table-cell jv-table-empty";
   if (typeof value === "string") return "jv-table-cell jv-string";
-  if (typeof value === "number") return "jv-table-cell jv-number";
+  if (typeof value === "number") {
+    return isRounded
+      ? "jv-table-cell jv-number jv-number-rounded"
+      : "jv-table-cell jv-number";
+  }
   if (typeof value === "boolean") return "jv-table-cell jv-bool";
   return "jv-table-cell jv-preview";
 }
@@ -394,6 +403,31 @@ export function createTableView(
     return exact !== undefined ? truncateCell(exact) : cellText(value);
   }
 
+  // Writes one cell: the display text, its syntax class, and — for a number
+  // whose exact source text is unavailable — the ⚠ affix and an explaining
+  // title. The title is removed rather than blanked on reuse, so a pooled cell
+  // never carries the previous row's tooltip. Export and the filter text read
+  // the value itself and never see the affix.
+  function applyCell(
+    cell: HTMLDivElement,
+    holder: object,
+    key: string,
+    value: JsonValue | undefined,
+    rowIndex: number,
+    columnIndex: number
+  ): void {
+    const isRounded = exactTextUnavailable(
+      value,
+      exactNumberText(holder, key, value),
+      exactNumbers
+    );
+    const text = displayText(holder, key, value);
+    cell.className = cellMatchClass(cellClass(value, isRounded), rowIndex, columnIndex);
+    cell.textContent = isRounded ? `${text} ${ROUNDED_NUMBER_MARKER}` : text;
+    if (isRounded) cell.title = ROUNDED_NUMBER_TITLE;
+    else if (cell.title !== "") cell.removeAttribute("title");
+  }
+
   function searchTextFor(holder: object, key: string, value: JsonValue): string {
     const exact = exactNumberText(holder, key, value);
     if (exact !== undefined) return exact.toLowerCase();
@@ -530,20 +564,18 @@ export function createTableView(
       for (let c = 0; c < columns.length; c += 1) {
         const cell = poolRow.cells[c];
         if (c === 0) {
-          cell.className = cellMatchClass(cellClass(row), rowIndex, 0);
-          cell.textContent = displayText(data, String(rowIndex), row);
+          applyCell(cell, data, String(rowIndex), row, rowIndex, 0);
         } else {
           cell.className = "jv-table-cell jv-table-missing";
           cell.textContent = "–";
+          if (cell.title !== "") cell.removeAttribute("title");
         }
       }
       return;
     }
     for (let c = 0; c < columns.length; c += 1) {
       const cell = poolRow.cells[c];
-      const value = cellValue(row, columns[c]);
-      cell.className = cellMatchClass(cellClass(value), rowIndex, c);
-      cell.textContent = displayText(row, columns[c], value);
+      applyCell(cell, row, columns[c], cellValue(row, columns[c]), rowIndex, c);
     }
   }
 
