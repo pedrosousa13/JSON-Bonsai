@@ -604,8 +604,12 @@ html:has(#jv-root) {
 }
 
 /* Raw has no source text for a query result, so it shows a serialization —
-   this says so. Only rendered while the raw view is active and a query is. */
-#jv-raw-note {
+   this says so. Only rendered while the raw view is active and a query is.
+   #jv-rounded-note is its sibling: the text views cannot mark a single value
+   without corrupting the JSON, so a number whose exact source text is
+   unavailable is reported once for the whole document. */
+#jv-raw-note,
+#jv-rounded-note {
   width: fit-content;
   margin-bottom: 10px;
   padding: 2px 8px;
@@ -615,7 +619,8 @@ html:has(#jv-root) {
   border-radius: 4px;
 }
 
-#jv-raw-note[hidden] {
+#jv-raw-note[hidden],
+#jv-rounded-note[hidden] {
   display: none;
 }
 
