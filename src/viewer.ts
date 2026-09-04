@@ -518,7 +518,7 @@ export function createTreeView(
   // the token discards a stale *result*, the controller stops the stale
   // *work*, so a chunked scan nobody wants any more abandons its remaining
   // batches instead of burning the main thread on them.
-  let searchAbort: AbortController | null = null;
+  let searchAbortController: AbortController | null = null;
   let searchMatches: number[] = [];
   let searchMatchSet = new Set<number>();
   let activeSearchIndex = -1;
@@ -733,9 +733,9 @@ export function createTreeView(
       searchRegex = regex;
       searchToken += 1;
       const token = searchToken;
-      searchAbort?.abort();
-      searchAbort = new AbortController();
-      const signal = searchAbort.signal;
+      searchAbortController?.abort();
+      searchAbortController = new AbortController();
+      const signal = searchAbortController.signal;
       options?.onRenderStateChange?.("Searching...");
 
       let matches: number[];
@@ -779,8 +779,8 @@ export function createTreeView(
 
     clearSearch(): TreeSearchState {
       searchToken += 1;
-      searchAbort?.abort();
-      searchAbort = null;
+      searchAbortController?.abort();
+      searchAbortController = null;
       searchQuery = "";
       searchRegex = false;
       searchMatches = [];
