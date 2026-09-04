@@ -47,6 +47,20 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+// A search index that answers through `resolve` and records the signal it was
+// handed on every call, so a test can assert which scans the viewer aborted.
+function createSignalRecordingIndex(resolve: (query: string) => Promise<number[]>) {
+  const signals: (AbortSignal | undefined)[] = [];
+  const index: TreeSearchIndex = {
+    search(query: string, options?: TreeSearchOptions): Promise<number[]> {
+      signals.push(options?.signal);
+      return resolve(query);
+    },
+    dispose(): void {},
+  };
+  return { index, signals };
+}
+
 describe("createTreeView", () => {
   test("search finds scalar values and highlights the active row", async () => {
     const container = createContainer();
@@ -230,17 +244,12 @@ describe("createTreeView", () => {
       alpha: { nested: { target: "first" } },
       beta: { nested: { target: "second" } },
     });
-    const signals: (AbortSignal | undefined)[] = [];
     const stale = createDeferred<number[]>();
-    const searchIndex: TreeSearchIndex = {
-      search(query: string, options?: TreeSearchOptions): Promise<number[]> {
-        signals.push(options?.signal);
-        return query === "first"
-          ? stale.promise
-          : Promise.resolve([findNodeByPath(model, "data.beta.nested.target")!.id]);
-      },
-      dispose(): void {},
-    };
+    const { index: searchIndex, signals } = createSignalRecordingIndex((query) =>
+      query === "first"
+        ? stale.promise
+        : Promise.resolve([findNodeByPath(model, "data.beta.nested.target")!.id])
+    );
     const treeView = createTreeView(container, model, { searchIndex });
 
     await treeView.render();
@@ -262,15 +271,8 @@ describe("createTreeView", () => {
   test("clearing the search aborts the in-flight scan", async () => {
     const container = createContainer();
     const model = buildTreeModel({ alpha: { nested: { target: "first" } } });
-    const signals: (AbortSignal | undefined)[] = [];
     const pending = createDeferred<number[]>();
-    const searchIndex: TreeSearchIndex = {
-      search(_query: string, options?: TreeSearchOptions): Promise<number[]> {
-        signals.push(options?.signal);
-        return pending.promise;
-      },
-      dispose(): void {},
-    };
+    const { index: searchIndex, signals } = createSignalRecordingIndex(() => pending.promise);
     const treeView = createTreeView(container, model, { searchIndex });
 
     await treeView.render();
@@ -289,15 +291,10 @@ describe("createTreeView", () => {
       alpha: { nested: { target: "first" } },
       beta: { nested: { target: "second" } },
     });
-    const signals: (AbortSignal | undefined)[] = [];
-    const searchIndex: TreeSearchIndex = {
-      search(query: string, options?: TreeSearchOptions): Promise<number[]> {
-        signals.push(options?.signal);
-        const path = query === "first" ? "data.alpha.nested.target" : "data.beta.nested.target";
-        return Promise.resolve([findNodeByPath(model, path)!.id]);
-      },
-      dispose(): void {},
-    };
+    const { index: searchIndex, signals } = createSignalRecordingIndex((query) => {
+      const path = query === "first" ? "data.alpha.nested.target" : "data.beta.nested.target";
+      return Promise.resolve([findNodeByPath(model, path)!.id]);
+    });
     const treeView = createTreeView(container, model, { searchIndex });
 
     await treeView.render();
