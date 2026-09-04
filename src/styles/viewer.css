@@ -767,8 +767,13 @@ html:has(#jv-root) {
 }
 
 /* Numbers whose exact source text is preserved because the parsed JS number
-   would lose precision (64-bit ids, high-precision decimals). */
-.jv-number-exact {
+   would lose precision (64-bit ids, high-precision decimals), and the mirror
+   case (.jv-number-rounded): an integer past 2^53 with no exact source text to
+   show, so the digits are only the nearest double. Both explain themselves in
+   a title; the rounded one also carries a ⚠ affix that no copy or export path
+   ever sees. */
+.jv-number-exact,
+.jv-number-rounded {
   text-decoration: underline dotted color-mix(in srgb, var(--number) 60%, transparent);
   text-underline-offset: 3px;
   cursor: help;
