@@ -213,12 +213,47 @@ test.runIf(hasReviverSource)(
       expect(() => JSON.parse(text)).not.toThrow();
     }
 
-    // Copy stays valid JSON with no marker in it.
+    // Copy stays valid JSON with no marker in it, in every text view.
+    for (const view of ["raw", "formatted", "schema"]) {
+      showView(view);
+      document.getElementById("jv-copy")!.click();
+      const copied = writeText.mock.lastCall?.[0] as string;
+      expect(copied).not.toContain("⚠");
+      expect(() => JSON.parse(copied)).not.toThrow();
+    }
     showView("raw");
     document.getElementById("jv-copy")!.click();
-    const copied = writeText.mock.lastCall?.[0] as string;
-    expect(copied).not.toContain("⚠");
-    expect(JSON.parse(copied)).toEqual([9007199254740992, 9007199254740996]);
+    expect(JSON.parse(writeText.mock.lastCall?.[0] as string)).toEqual([
+      9007199254740992, 9007199254740996,
+    ]);
+
+    // Per-node copy of a marked number: no source text to copy, so it falls
+    // back to serializing the value — the marker is a view affordance only.
+    showView("tree");
+    document
+      .querySelector<HTMLElement>('[data-path="data[0]"]')!
+      .querySelector<HTMLElement>(".jv-action-copy-node")!
+      .click();
+    expect(writeText).toHaveBeenLastCalledWith("9007199254740992");
+  }
+);
+
+test.runIf(hasReviverSource)(
+  "clearing the query takes the rounded note away with it",
+  async () => {
+    await mountViewer(LOSSY_DOC);
+
+    await runViewerQuery("items[*].id");
+    showView("formatted");
+    expect(roundedNoteShown()).toBe(true);
+
+    // An empty expression restores the original document, whose ids resolve to
+    // their source text again.
+    await runViewerQuery("");
+
+    expect(roundedNoteShown()).toBe(false);
+    showView("tree");
+    expect(roundedValues()).toEqual([]);
   }
 );
 

@@ -237,7 +237,7 @@ function exportCellValue(
   return String(value);
 }
 
-function cellClass(value: JsonValue | undefined, isRounded = false): string {
+function cellClass(value: JsonValue | undefined, isRounded: boolean): string {
   if (value === undefined) return "jv-table-cell jv-table-missing";
   if (value === null) return "jv-table-cell jv-null";
   if (value === "") return "jv-table-cell jv-table-empty";

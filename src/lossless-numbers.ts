@@ -79,8 +79,10 @@ export function numberLosesPrecision(source: string, value: number): boolean {
 export const ROUNDED_NUMBER_MARKER = "⚠";
 export const ROUNDED_NUMBER_TITLE =
   "The exact source text for this value is unavailable; the digits shown are the nearest JavaScript number.";
+// Said about the document, not about what is on screen: the schema view emits
+// types only, so a note about "the numbers here" would be false there.
 export const ROUNDED_NUMBER_NOTE =
-  "Some numbers here are shown without their exact source text — the digits are the nearest JavaScript number. Tree view marks which.";
+  "This document contains numbers whose exact source text is unavailable; the digits shown for them are the nearest JavaScript number. Tree view marks which ones.";
 
 // True when `value` is a number the viewer cannot show exactly: an integer
 // outside the range a double represents exactly, with no exact source text
