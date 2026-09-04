@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import {
   createThemeSettings,
   defaultThemeState,
@@ -8,7 +8,6 @@ import {
   type ThemeSettingsController,
   type ThemeSettingsOptions,
 } from "./theme-settings";
-import { watchUnhandledRejections } from "./test-helpers";
 import {
   BUILTIN_SCHEMES,
   DEFAULT_DARK_ID,
@@ -45,6 +44,16 @@ function fakeStorage(initial: Record<string, string> = {}): {
       },
     },
   };
+}
+
+// Node reports a floating promise nobody handled through `process`, not through
+// jsdom's window — a rejection raised inside theme-settings.ts is created in the
+// Node realm, so window.onunhandledrejection never sees it.
+function watchUnhandledRejections(): { reasons: unknown[]; stop: () => void } {
+  const reasons: unknown[] = [];
+  const handler = (reason: unknown) => reasons.push(reason);
+  process.on("unhandledRejection", handler);
+  return { reasons, stop: () => process.off("unhandledRejection", handler) };
 }
 
 // An invalidated extension context breaks a write in both shapes: the promise
@@ -322,7 +331,10 @@ for (const mode of ["rejects", "throws"] as const) {
 
   test(`the toggles and the theme select still work when storage ${mode}`, async () => {
     const root = mountRoot();
+    // Registered at creation so a failing assertion below cannot leave the
+    // process listener installed for the rest of the worker.
     const watch = watchUnhandledRejections();
+    onTestFinished(watch.stop);
     const onRememberQueryChange = vi.fn();
     const onExposeWindowDataChange = vi.fn();
     const settings = settingsOverFailingStorage(root, {
@@ -350,13 +362,13 @@ for (const mode of ["rejects", "throws"] as const) {
 
     // Give a rejection the turn it needs to be reported as unhandled.
     await new Promise((resolve) => setTimeout(resolve, 10));
-    watch.stop();
     expect(watch.reasons).toEqual([]);
   });
 
   test(`a pasted scheme is listed and painted when storage ${mode}`, async () => {
     const root = mountRoot();
     const watch = watchUnhandledRejections();
+    onTestFinished(watch.stop);
     const settings = settingsOverFailingStorage(root);
     settings.mountMenu();
 
@@ -367,7 +379,6 @@ for (const mode of ["rejects", "throws"] as const) {
     expect(root.style.getPropertyValue("--bg")).toBe("#101010");
 
     await new Promise((resolve) => setTimeout(resolve, 10));
-    watch.stop();
     expect(watch.reasons).toEqual([]);
   });
 
@@ -378,6 +389,7 @@ for (const mode of ["rejects", "throws"] as const) {
     pasteCustomScheme(root);
 
     const watch = watchUnhandledRejections();
+    onTestFinished(watch.stop);
     root.querySelector<HTMLButtonElement>("#jv-custom-list li button")!.click();
 
     expect(root.querySelectorAll("#jv-custom-list li").length).toBe(0);
@@ -386,7 +398,6 @@ for (const mode of ["rejects", "throws"] as const) {
     expect(root.style.getPropertyValue("--bg")).toBe(fallback.palette.base00);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
-    watch.stop();
     expect(watch.reasons).toEqual([]);
   });
 }

@@ -19,6 +19,9 @@ const THEME_ID_KEY = "jv-theme-id";
 const CUSTOM_THEMES_KEY = "jv-custom-themes";
 
 // The slice of chrome.storage.local used here, so a test can pass a plain object.
+// The injected value in production is chrome.storage.local itself, which on an
+// invalidated extension context throws synchronously as well as rejecting —
+// hence the try *and* the .catch around every write below.
 export interface SettingsStorage {
   get(keys: string[]): Promise<Record<string, unknown>>;
   set(items: Record<string, string>): Promise<void>;
