@@ -136,4 +136,44 @@ describe("chunked scanning", () => {
 
     await expect(pending).resolves.toEqual([]);
   });
+
+  test("an aborted signal stops an in-flight scan before its remaining batches run", async () => {
+    const largeIndex = createLocalTreeSearchIndex(largeModel);
+    const superseded = new AbortController();
+
+    let settled = false;
+    const pending = largeIndex
+      .search("item-1023", { signal: superseded.signal })
+      .then((matches) => {
+        settled = true;
+        return matches;
+      });
+
+    // Let the scan get a couple of batches in, so the abort lands mid-scan
+    // rather than before the first batch.
+    for (let turn = 0; turn < 2; turn += 1) await eventLoopTurn();
+    expect(settled).toBe(false);
+
+    superseded.abort();
+
+    // A scan that ran to completion would need 20 tasks; settling within a
+    // handful proves the batches after the abort never ran.
+    for (let turn = 0; turn < 4; turn += 1) await eventLoopTurn();
+    expect(settled).toBe(true);
+
+    await expect(pending).resolves.toEqual([]);
+  });
+
+  test("an aborted scan leaves the index able to serve the next search", async () => {
+    const largeIndex = createLocalTreeSearchIndex(largeModel);
+    const superseded = new AbortController();
+
+    const abandoned = largeIndex.search("item-1023", { signal: superseded.signal });
+    superseded.abort();
+    await expect(abandoned).resolves.toEqual([]);
+
+    await expect(largeIndex.search("item-1023")).resolves.toEqual([
+      findNodeByPath(largeModel, "data[1023].tag")!.id,
+    ]);
+  });
 });
