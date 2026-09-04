@@ -16,6 +16,9 @@ interface TreeSearchMatch {
 
 export interface TreeSearchOptions {
   regex?: boolean;
+  // Aborted when a newer search supersedes this one, so a chunked scan whose
+  // result is already discarded stops instead of walking every batch left.
+  signal?: AbortSignal;
 }
 
 export interface TreeSearchIndex {
@@ -165,11 +168,13 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
       const total = searchNodes.length;
 
       for (let start = 0; start < total; start += SEARCH_SCAN_BATCH_SIZE) {
-        // Disposal during a chunked scan abandons the remaining batches and
-        // resolves empty: the caller is tearing this index down, and the
-        // viewer discards a superseded search's ids anyway. Resolving rather
-        // than rejecting keeps dispose() safe on the ordinary replace path.
-        if (disposed) return [];
+        // Disposal or a supersede during a chunked scan abandons the
+        // remaining batches and resolves empty: the caller is either tearing
+        // this index down or has already moved on, and the viewer discards a
+        // superseded search's ids anyway. Resolving rather than rejecting
+        // keeps both the ordinary replace path and an abort free of a
+        // rejection the abandoned caller never asked for.
+        if (disposed || options?.signal?.aborted) return [];
 
         const end = Math.min(start + SEARCH_SCAN_BATCH_SIZE, total);
         const batch = collectTreeSearchMatches(searchNodes, effectiveQuery, start, end, options);

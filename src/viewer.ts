@@ -514,6 +514,11 @@ export function createTreeView(
 
   const rowByNodeId = new Map<number, HTMLElement>();
   let searchToken = 0;
+  // The token and the controller answer two different halves of a supersede:
+  // the token discards a stale *result*, the controller stops the stale
+  // *work*, so a chunked scan nobody wants any more abandons its remaining
+  // batches instead of burning the main thread on them.
+  let searchAbortController: AbortController | null = null;
   let searchMatches: number[] = [];
   let searchMatchSet = new Set<number>();
   let activeSearchIndex = -1;
@@ -728,11 +733,17 @@ export function createTreeView(
       searchRegex = regex;
       searchToken += 1;
       const token = searchToken;
+      searchAbortController?.abort();
+      searchAbortController = new AbortController();
+      const signal = searchAbortController.signal;
       options?.onRenderStateChange?.("Searching...");
 
       let matches: number[];
       try {
-        matches = await searchIndex.search(effectiveQuery, { regex });
+        // The signal goes out on every search, but only the local substring
+        // scan honours it: the composite index sends a regex to the frame
+        // worker, which is bounded by its own deadline instead.
+        matches = await searchIndex.search(effectiveQuery, { regex, signal });
       } catch (error) {
         // A regex search runs in a terminable worker, so it can fail rather
         // than answer. Leaving the previous query's highlights up and the
@@ -771,6 +782,8 @@ export function createTreeView(
 
     clearSearch(): TreeSearchState {
       searchToken += 1;
+      searchAbortController?.abort();
+      searchAbortController = null;
       searchQuery = "";
       searchRegex = false;
       searchMatches = [];

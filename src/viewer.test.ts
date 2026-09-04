@@ -5,7 +5,11 @@ import { describe, expect, test } from "vitest";
 import { buildTreeModel, findNodeByPath } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
-import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
+import {
+  createLocalTreeSearchIndex,
+  type TreeSearchIndex,
+  type TreeSearchOptions,
+} from "./tree-search";
 import { runQuery } from "./query";
 import { composeNodeQuery, projectLastIndex } from "./query-suggest";
 
@@ -41,6 +45,20 @@ function createDeferred<T>() {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+// A search index that answers through `resolve` and records the signal it was
+// handed on every call, so a test can assert which scans the viewer aborted.
+function createSignalRecordingIndex(resolve: (query: string) => Promise<number[]>) {
+  const signals: (AbortSignal | undefined)[] = [];
+  const index: TreeSearchIndex = {
+    search(query: string, options?: TreeSearchOptions): Promise<number[]> {
+      signals.push(options?.signal);
+      return resolve(query);
+    },
+    dispose(): void {},
+  };
+  return { index, signals };
 }
 
 describe("createTreeView", () => {
@@ -215,6 +233,78 @@ describe("createTreeView", () => {
     await firstSearch;
 
     expect(treeView.getSearchState().query).toBe("second");
+    expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
+      "data.beta.nested.target"
+    );
+  });
+
+  test("a superseded search has its scan aborted, and the newer one is left running", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "first" } },
+      beta: { nested: { target: "second" } },
+    });
+    const stale = createDeferred<number[]>();
+    const { index: searchIndex, signals } = createSignalRecordingIndex((query) =>
+      query === "first"
+        ? stale.promise
+        : Promise.resolve([findNodeByPath(model, "data.beta.nested.target")!.id])
+    );
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+
+    const firstSearch = treeView.search("first");
+    expect(signals[0]?.aborted).toBe(false);
+
+    await treeView.search("second");
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    // An aborted scan resolves empty rather than rejecting, so a supersede
+    // must not surface as an error to the abandoned caller either.
+    stale.resolve([]);
+    await expect(firstSearch).resolves.toMatchObject({ query: "second" });
+    expect(treeView.getSearchState().matchCount).toBe(1);
+  });
+
+  test("clearing the search aborts the in-flight scan", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({ alpha: { nested: { target: "first" } } });
+    const pending = createDeferred<number[]>();
+    const { index: searchIndex, signals } = createSignalRecordingIndex(() => pending.promise);
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+
+    const search = treeView.search("first");
+    treeView.clearSearch();
+    expect(signals[0]?.aborted).toBe(true);
+
+    pending.resolve([]);
+    await expect(search).resolves.toMatchObject({ query: "" });
+  });
+
+  test("a search after a superseded one gets a fresh, unaborted signal", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "first" } },
+      beta: { nested: { target: "second" } },
+    });
+    const { index: searchIndex, signals } = createSignalRecordingIndex((query) => {
+      const path = query === "first" ? "data.alpha.nested.target" : "data.beta.nested.target";
+      return Promise.resolve([findNodeByPath(model, path)!.id]);
+    });
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+
+    await treeView.search("first");
+    treeView.clearSearch();
+    await treeView.search("second");
+
+    expect(signals[1]?.aborted).toBe(false);
+    expect(treeView.getSearchState().matchCount).toBe(1);
     expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
       "data.beta.nested.target"
     );
