@@ -220,6 +220,95 @@ describe("createTreeView", () => {
     );
   });
 
+  test("a superseded search has its scan aborted, and the newer one is left running", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "first" } },
+      beta: { nested: { target: "second" } },
+    });
+    const signals: (AbortSignal | undefined)[] = [];
+    const stale = createDeferred<number[]>();
+    const searchIndex: TreeSearchIndex = {
+      search(query: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+        signals.push(options?.signal);
+        return query === "first"
+          ? stale.promise
+          : Promise.resolve([findNodeByPath(model, "data.beta.nested.target")!.id]);
+      },
+      dispose(): void {},
+    };
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+
+    const firstSearch = treeView.search("first");
+    expect(signals[0]?.aborted).toBe(false);
+
+    await treeView.search("second");
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    // An aborted scan resolves empty rather than rejecting, so a supersede
+    // must not surface as an error to the abandoned caller either.
+    stale.resolve([]);
+    await expect(firstSearch).resolves.toMatchObject({ query: "second" });
+    expect(treeView.getSearchState().matchCount).toBe(1);
+  });
+
+  test("clearing the search aborts the in-flight scan", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({ alpha: { nested: { target: "first" } } });
+    const signals: (AbortSignal | undefined)[] = [];
+    const pending = createDeferred<number[]>();
+    const searchIndex: TreeSearchIndex = {
+      search(_query: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+        signals.push(options?.signal);
+        return pending.promise;
+      },
+      dispose(): void {},
+    };
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+
+    const search = treeView.search("first");
+    treeView.clearSearch();
+    expect(signals[0]?.aborted).toBe(true);
+
+    pending.resolve([]);
+    await expect(search).resolves.toMatchObject({ query: "" });
+  });
+
+  test("a search after a superseded one gets a fresh, unaborted signal", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "first" } },
+      beta: { nested: { target: "second" } },
+    });
+    const signals: (AbortSignal | undefined)[] = [];
+    const searchIndex: TreeSearchIndex = {
+      search(query: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+        signals.push(options?.signal);
+        const path = query === "first" ? "data.alpha.nested.target" : "data.beta.nested.target";
+        return Promise.resolve([findNodeByPath(model, path)!.id]);
+      },
+      dispose(): void {},
+    };
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+
+    await treeView.search("first");
+    treeView.clearSearch();
+    await treeView.search("second");
+
+    expect(signals[1]?.aborted).toBe(false);
+    expect(treeView.getSearchState().matchCount).toBe(1);
+    expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
+      "data.beta.nested.target"
+    );
+  });
+
   test("a rejected search clears the matches and the render state, then rethrows", async () => {
     const container = createContainer();
     const model = buildTreeModel({
