@@ -38,6 +38,7 @@ import {
 import {
   parseWithExactNumbers,
   stringifyWithExactNumbers,
+  ROUNDED_NUMBER_NOTE,
   type ExactNumberMap,
 } from "./lossless-numbers";
 import { parseNdjson, parseNdjsonLines } from "./ndjson";
@@ -240,6 +241,7 @@ async function init(): Promise<void> {
       <button id="jv-notice-close" title="Dismiss">×</button>
     </div>
     <div id="jv-content">
+      <div id="jv-rounded-note" hidden></div>
       <div id="jv-tree"></div>
       <div id="jv-table"></div>
       <pre id="jv-formatted"></pre>
@@ -296,6 +298,8 @@ async function init(): Promise<void> {
   const formattedEl = document.getElementById("jv-formatted")!;
   const rawEl = document.getElementById("jv-raw")!;
   const rawNoteEl = document.getElementById("jv-raw-note")!;
+  const roundedNoteEl = document.getElementById("jv-rounded-note")!;
+  roundedNoteEl.textContent = ROUNDED_NUMBER_NOTE;
   const schemaEl = document.getElementById("jv-schema")!;
   const pathDisplay = document.getElementById("jv-path-display")!;
   const pathText = document.getElementById("jv-path-text")!;
@@ -456,6 +460,11 @@ async function init(): Promise<void> {
 
   setRenderStatus("Indexing JSON...");
   const model = buildTreeModel(data, exactNumbers);
+  // Whether the document on screen holds a number whose exact source text is
+  // unavailable. The tree and the table mark those values one by one; the text
+  // views take this document-level answer from whichever model is mounted (the
+  // original document's, or a query result's).
+  let hasRoundedNumbers = model.hasRoundedNumbers;
   let treeView!: TreeViewController;
   let treeMounted = false;
   // The original document's index lives for the whole page so swapping to a
@@ -493,6 +502,7 @@ async function init(): Promise<void> {
   async function mountTree(treeModel: TreeModel, searchIndex: TreeSearchIndex): Promise<void> {
     if (treeMounted) treeView.dispose();
     treeMounted = true;
+    hasRoundedNumbers = treeModel.hasRoundedNumbers;
     const initialExpansionDepth =
       treeModel.totalNodes > LARGE_TREE_NODE_THRESHOLD
         ? LARGE_TREE_INITIAL_EXPANSION_DEPTH
@@ -644,6 +654,15 @@ async function init(): Promise<void> {
     rawNoteEl.hidden = !(currentView === "raw" && activeQueryResult !== null);
   }
 
+  // Sibling of updateRawNote, and shown under the same rules: the text views
+  // render JSON, so the ⚠ the tree and table put on a single value would
+  // corrupt it here. One note for the document instead. It has its own element
+  // rather than sharing the dismissible bar, which the large-document and
+  // render-state messages already own.
+  function updateRoundedNote(): void {
+    roundedNoteEl.hidden = !(isTextView(currentView) && hasRoundedNumbers);
+  }
+
   function copyLabelText(): string {
     return currentView === "schema" ? "Copy JSON Schema" : "Copy JSON";
   }
@@ -654,6 +673,7 @@ async function init(): Promise<void> {
     currentView = name;
     ensureViewContent(name);
     updateRawNote();
+    updateRoundedNote();
     copyLabel.textContent = copyLabelText();
     viewBtns.forEach((btn) => btn.classList.toggle("jv-active", btn.dataset.view === name));
     Object.entries(views).forEach(([key, el]) => {
@@ -733,6 +753,7 @@ async function init(): Promise<void> {
       delete viewScrollTops[name];
     }
     updateRawNote();
+    updateRoundedNote();
     if (isTextView(currentView)) {
       content.scrollTop = 0;
       ensureViewContent(currentView);

@@ -590,6 +590,62 @@ describe("createTreeView", () => {
     expect(treeView.getNodeNumberText(findNodeByPath(model, "data.small")!.id)).toBe(null);
   });
 
+  test("marks a number whose exact source text is unavailable", async () => {
+    const container = createContainer();
+    // What a projection hands the tree: the exact text sits on the parsed
+    // holder, never on the one being rendered.
+    const parsed = { id: 9007199254740993 };
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [parsed as object, new Map([["id", "9007199254740993"]])],
+    ]);
+    const model = buildTreeModel({ id: parsed.id, small: 1 }, exactNumbers);
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+
+    const idValue = container
+      .querySelector<HTMLElement>('[data-path="data.id"]')!
+      .querySelector<HTMLElement>(".jv-number")!;
+    expect(idValue.classList.contains("jv-number-rounded")).toBe(true);
+    expect(idValue.textContent).toContain("9007199254740992");
+    expect(idValue.textContent).toContain("⚠");
+    expect(idValue.title).toContain("exact source text");
+
+    const smallValue = container
+      .querySelector<HTMLElement>('[data-path="data.small"]')!
+      .querySelector<HTMLElement>(".jv-number")!;
+    expect(smallValue.classList.contains("jv-number-rounded")).toBe(false);
+    expect(smallValue.textContent).toBe("1");
+    expect(smallValue.title).toBe("");
+  });
+
+  test("a pooled row rebound to a plain number drops the rounded marker", async () => {
+    const container = createContainer();
+    // Long enough that rows are recycled as the window scrolls; the rounded
+    // value is first, the plain ones follow.
+    const values: number[] = [9007199254740993];
+    for (let i = 0; i < 400; i += 1) values.push(i);
+    const model = buildTreeModel(values, new WeakMap());
+    const treeView = createTreeView(container, model, { scrollContainer: container });
+
+    await treeView.render();
+    const first = container
+      .querySelector<HTMLElement>('[data-path="data[0]"]')!
+      .querySelector<HTMLElement>(".jv-number")!;
+    expect(first.classList.contains("jv-number-rounded")).toBe(true);
+
+    container.scrollTop = 4000;
+    container.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await treeView.render();
+
+    for (const span of container.querySelectorAll<HTMLElement>(".jv-number")) {
+      if (span.textContent!.includes("⚠")) continue;
+      expect(span.classList.contains("jv-number-rounded")).toBe(false);
+      expect(span.title).toBe("");
+    }
+  });
+
   test("expandAll keeps DOM windowed at any size", async () => {
     const container = createContainer();
     const model = buildTreeModel({

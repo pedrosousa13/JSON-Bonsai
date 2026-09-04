@@ -65,6 +65,59 @@ describe("buildTreeModel", () => {
     expect(plainNode.searchValue).toBe("1");
   });
 
+  test("marks an unsafe integer that has no exact source text", () => {
+    // What a projecting query hands the tree: a new holder, so the exact text
+    // recorded against the parsed one never resolves (issue #87).
+    const parsed = { id: 9007199254740993 };
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [parsed as object, new Map([["id", "9007199254740993"]])],
+    ]);
+    const projected = { id: parsed.id, small: 1, exact: parsed.id };
+    exactNumbers.set(projected as object, new Map([["exact", "9007199254740993"]]));
+
+    const model = buildTreeModel(projected, exactNumbers);
+
+    expect(findNodeByPath(model, "data.id")!.numberIsRounded).toBe(true);
+    // A safe integer, and a number whose source text did resolve, stay quiet.
+    expect(findNodeByPath(model, "data.small")!.numberIsRounded).toBe(false);
+    expect(findNodeByPath(model, "data.exact")!.numberIsRounded).toBe(false);
+    expect(model.hasRoundedNumbers).toBe(true);
+  });
+
+  test("marks nothing when the document holds no rounded number", () => {
+    const data = { id: 9007199254740993 };
+    const exactNumbers: ExactNumberMap = new WeakMap([
+      [data as object, new Map([["id", "9007199254740993"]])],
+    ]);
+
+    const model = buildTreeModel(data, exactNumbers);
+
+    expect(findNodeByPath(model, "data.id")!.numberIsRounded).toBe(false);
+    expect(model.hasRoundedNumbers).toBe(false);
+  });
+
+  test("marks an exactly-representable integer past 2^53 too", () => {
+    // Documented false positive: 2^53 is exactly representable, so nothing was
+    // lost and it never enters the map — but "no exact text" is all the rule
+    // has to go on without re-keying exactness, which #87 declined. The marker
+    // only ever claims the source text is unavailable, which is true here.
+    const model = buildTreeModel({ id: 9007199254740992 }, new WeakMap());
+
+    expect(findNodeByPath(model, "data.id")!.numberIsRounded).toBe(true);
+  });
+
+  test("marks nothing when the engine has no exact numbers at all", () => {
+    // exactNumbers null (or absent) means the engine has no reviver source, so
+    // exact and rounded are indistinguishable — mark nothing rather than mark
+    // every unsafe integer.
+    for (const exactNumbers of [null, undefined]) {
+      const model = buildTreeModel({ id: 9007199254740993 }, exactNumbers);
+
+      expect(findNodeByPath(model, "data.id")!.numberIsRounded).toBe(false);
+      expect(model.hasRoundedNumbers).toBe(false);
+    }
+  });
+
   test("truncates a long search value without splitting a surrogate pair", () => {
     // 199 plain characters then an emoji, so the 200-unit cut falls between
     // the emoji's two halves. Indexing a lone surrogate matches nothing.

@@ -9,6 +9,10 @@ import {
   normalizeSearchText,
   type TreeSearchIndex,
 } from "./tree-search";
+import {
+  ROUNDED_NUMBER_MARKER,
+  ROUNDED_NUMBER_TITLE,
+} from "./lossless-numbers";
 import { truncateCodePoints } from "./truncate";
 import { flashLabel, FLASH_LABEL_MS } from "./flash-label";
 import { createVirtualScroller } from "./virtual-scroller";
@@ -168,7 +172,8 @@ function escapeString(value: string): string {
 function applyLeafValue(
   span: HTMLSpanElement,
   value: JsonValue,
-  numberText: string | null
+  numberText: string | null,
+  numberIsRounded: boolean
 ): void {
   // Pooled rows get reused across nodes; drop a previous exact-number tooltip.
   if (span.title !== "") span.removeAttribute("title");
@@ -200,6 +205,12 @@ function applyLeafValue(
       span.className = "jv-number jv-number-exact";
       span.textContent = numberText;
       span.title = "Exact value preserved; JS number would lose precision";
+    } else if (numberIsRounded) {
+      // The mirror of the exact case: no source token to show, so say so
+      // rather than pass the nearest double off as what the document said.
+      span.className = "jv-number jv-number-rounded";
+      span.textContent = `${String(value)} ${ROUNDED_NUMBER_MARKER}`;
+      span.title = ROUNDED_NUMBER_TITLE;
     } else {
       span.className = "jv-number";
       span.textContent = String(value);
@@ -276,7 +287,7 @@ function applyPoolRow(row: PoolRow, node: JsonNode, isExpanded: boolean): void {
   } else {
     row.preview.hidden = true;
     row.leaf.hidden = false;
-    applyLeafValue(row.leafValue, node.value, node.numberText);
+    applyLeafValue(row.leafValue, node.value, node.numberText, node.numberIsRounded);
     row.leafComma.textContent = comma;
   }
 
