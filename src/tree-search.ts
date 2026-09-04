@@ -6,7 +6,10 @@ import type { TreeSearchNode } from "./tree-search-protocol";
 
 export type { TreeSearchNode };
 
-export interface TreeSearchMatch {
+// Module-internal: `collectTreeSearchMatches` hands these to
+// `sortTreeSearchMatches`, and every caller of that pair — the local index here
+// and the worker — only ever passes them straight through.
+interface TreeSearchMatch {
   nodeId: number;
   score: number;
 }

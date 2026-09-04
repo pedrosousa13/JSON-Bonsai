@@ -1,12 +1,17 @@
 import { expect, test } from "vitest";
 
 import { buildTreeModel } from "./tree-model";
-import type { SearchFrameRequest, SearchFrameResponse } from "./tree-search-protocol";
+import type {
+  SearchFrameRequest,
+  SearchFrameResponse,
+  TreeSearchNode,
+} from "./tree-search-protocol";
 import {
   SEARCH_FRAME_READY_TIMEOUT_MS,
   SEARCH_REQUEST_TIMEOUT_MS,
 } from "./tree-search-protocol";
 import {
+  SEARCH_FRAME_MOUNT_ATTEMPTS,
   TreeSearchTimeoutError,
   TreeSearchUnavailableError,
   createSearchFrameHost,
@@ -21,6 +26,17 @@ import {
 // URL to load and the origin to trust cannot be the same value.
 const FRAME_URL = "chrome-extension://a99be5a8-78cc-48aa-9fc4-4ec17bf14448/worker-host.html";
 const FRAME_ORIGIN = "chrome-extension://okiimodnidbidnjmoneimjiekakmacof";
+
+const nodes: TreeSearchNode[] = [
+  {
+    id: 0,
+    searchValue: "alpha",
+    hasLongSearchValue: false,
+    searchKey: "tag",
+    searchPath: "data.tag",
+    isContainer: false,
+  },
+];
 
 class FakeFrameWindow implements SearchFramePostTarget {
   readonly posted: SearchFrameRequest[] = [];
@@ -128,25 +144,103 @@ test("a frame that never reports ready makes regex search unavailable", async ()
   await expect(search).rejects.toBeInstanceOf(TreeSearchUnavailableError);
 });
 
-test("an unavailable frame is not retried on the next search", async () => {
+test("a readiness timeout is retried once and the second one is terminal", async () => {
   const harness = createHarness();
-  await expect(
-    (() => {
-      const search = harness.host.search(0, "alpha");
-      harness.fire(SEARCH_FRAME_READY_TIMEOUT_MS);
-      return search;
-    })()
-  ).rejects.toBeInstanceOf(TreeSearchUnavailableError);
 
-  const timersAfterFirst = harness.timers.length;
+  // A timeout is a guess, not a verdict: a loaded machine can miss the budget
+  // on a frame that works, so the first one only kills this attempt.
+  harness.host.init(0, nodes);
+  const first = harness.host.search(0, "alpha");
+  harness.fire(SEARCH_FRAME_READY_TIMEOUT_MS);
+  await expect(first).rejects.toBeInstanceOf(TreeSearchUnavailableError);
+
+  const second = harness.host.search(0, "beta");
+  expect(harness.mountedUrls).toEqual([FRAME_URL, FRAME_URL]);
+
+  // The retry works. The node set the first attempt never managed to send goes
+  // to it rather than being lost, and the search that died with the first
+  // attempt is not replayed — it was already settled.
+  harness.fromFrame({ type: "jv-search-ready" });
+  expect(harness.frames[1].posted).toEqual([
+    { type: "jv-search-init", index: 0, nodes },
+    { type: "jv-search-request", id: 2, index: 0, query: "beta" },
+  ]);
+  harness.fromFrame({ type: "jv-search-result", id: 2, matches: [1] });
+  await expect(second).resolves.toEqual([1]);
+});
+
+test("a node set released before the frame started is not replayed into the retry", async () => {
+  const harness = createHarness();
+  harness.host.init(0, nodes);
+  const search = harness.host.search(0, "alpha");
+  harness.fire(SEARCH_FRAME_READY_TIMEOUT_MS);
+  await expect(search).rejects.toBeInstanceOf(TreeSearchUnavailableError);
+
+  // The index was torn down while the frame was still starting. Its nodes were
+  // never delivered, so the release is a matter of dropping them — which is
+  // also what stops a document-sized array being retained here for a frame
+  // that may never start.
+  harness.host.release(0);
+
+  const retry = harness.host.search(1, "beta");
+  harness.fromFrame({ type: "jv-search-ready" });
+  expect(harness.frames[1].posted).toEqual([
+    { type: "jv-search-request", id: 2, index: 1, query: "beta" },
+  ]);
+
+  harness.fromFrame({ type: "jv-search-result", id: 2, matches: [] });
+  await expect(retry).resolves.toEqual([]);
+});
+
+test("a second readiness timeout turns regex search off for good", async () => {
+  const harness = createHarness();
+  expect(SEARCH_FRAME_MOUNT_ATTEMPTS).toBe(2);
+
+  for (let attempt = 0; attempt < SEARCH_FRAME_MOUNT_ATTEMPTS; attempt += 1) {
+    const search = harness.host.search(0, "alpha");
+    harness.fire(SEARCH_FRAME_READY_TIMEOUT_MS);
+    await expect(search).rejects.toBeInstanceOf(TreeSearchUnavailableError);
+  }
+
+  const timersAfterAttempts = harness.timers.length;
   await expect(harness.host.search(0, "beta")).rejects.toBeInstanceOf(
     TreeSearchUnavailableError
   );
 
-  // No second frame, and no fresh readiness timer: the state is cached for the
-  // life of the page rather than re-probed per keystroke.
+  // No third frame and no fresh readiness timer: two timeouts is enough
+  // evidence to stop re-probing per keystroke.
+  expect(harness.mountedUrls).toEqual([FRAME_URL, FRAME_URL]);
+  expect(harness.timers.length).toBe(timersAfterAttempts);
+});
+
+test("the frame reporting itself unavailable is terminal at once", async () => {
+  const harness = createHarness();
+  const first = harness.host.search(0, "alpha");
+  harness.fromFrame({ type: "jv-search-unavailable" });
+  await expect(first).rejects.toBeInstanceOf(TreeSearchUnavailableError);
+
+  // An explicit verdict from the frame is not a guess, so it is not retried.
+  await expect(harness.host.search(0, "beta")).rejects.toBeInstanceOf(
+    TreeSearchUnavailableError
+  );
   expect(harness.mountedUrls).toEqual([FRAME_URL]);
-  expect(harness.timers.length).toBe(timersAfterFirst);
+});
+
+test("the frame is mounted once and reused by every later search", async () => {
+  const harness = createHarness();
+  const first = harness.host.search(0, "alpha");
+  harness.fromFrame({ type: "jv-search-ready" });
+  harness.fromFrame({ type: "jv-search-result", id: 1, matches: [1] });
+  await expect(first).resolves.toEqual([1]);
+
+  const second = harness.host.search(0, "beta");
+  harness.fromFrame({ type: "jv-search-result", id: 2, matches: [2] });
+  await expect(second).resolves.toEqual([2]);
+
+  // One frame for the life of the page: the handshake measured 80-120 ms and
+  // there is no reason to pay it per keystroke.
+  expect(harness.mountedUrls).toEqual([FRAME_URL]);
+  expect(harness.frames).toHaveLength(1);
 });
 
 test("the frame reporting itself unavailable rejects the search in flight", async () => {
@@ -174,6 +268,37 @@ test("a request made before the frame is ready is held and then posted", async (
 
   harness.fromFrame({ type: "jv-search-result", id: 1, matches: [4, 7] });
   await expect(search).resolves.toEqual([4, 7]);
+});
+
+test("the request deadline covers the wait for the frame, not just the search", async () => {
+  const harness = createHarness();
+  const search = harness.host.search(0, "(a+)+$");
+
+  // Armed at the moment the request was made, while the frame is still
+  // starting up. Otherwise a cold first search is bounded by the readiness
+  // budget *plus* this one, which busts the 2-second acceptance criterion.
+  expect(harness.timers.map((timer) => timer.delayMs)).toEqual([
+    SEARCH_FRAME_READY_TIMEOUT_MS,
+    SEARCH_REQUEST_TIMEOUT_MS,
+  ]);
+
+  harness.fire(SEARCH_REQUEST_TIMEOUT_MS);
+  await expect(search).rejects.toBeInstanceOf(TreeSearchTimeoutError);
+});
+
+test("a request that timed out before delivery is not delivered afterwards", async () => {
+  const harness = createHarness();
+  const search = harness.host.search(0, "(a+)+$");
+
+  harness.fire(SEARCH_REQUEST_TIMEOUT_MS);
+  await expect(search).rejects.toBeInstanceOf(TreeSearchTimeoutError);
+
+  harness.fromFrame({ type: "jv-search-ready" });
+
+  // Nothing goes out: the frame never held this request, so there is nothing
+  // to abort, and running a pattern nobody is waiting for would only wedge the
+  // worker the next search needs.
+  expect(harness.frames[0].posted).toEqual([]);
 });
 
 test("a search that outruns its deadline aborts the worker and rejects as a timeout", async () => {
@@ -217,16 +342,50 @@ test("a late result for an aborted search is ignored", async () => {
   harness.fromFrame({ type: "jv-search-result", id: 1, matches: [1] });
 });
 
-test("a search the frame reports failed rejects as a timeout", async () => {
+test("a search the frame reports failed is resent once", async () => {
   const harness = createHarness();
   const search = harness.host.search(0, "alpha");
   harness.fromFrame({ type: "jv-search-ready" });
 
   // The frame answers this way when the request died with a worker that was
-  // terminated for someone else's runaway pattern.
+  // terminated for someone else's runaway pattern. It never ran, so calling it
+  // a timeout would be a lie — it is resent instead, and the frame queues it
+  // until the respawned worker handshakes.
   harness.fromFrame({ type: "jv-search-failed", id: 1 });
 
+  expect(harness.frames[0].posted).toEqual([
+    { type: "jv-search-request", id: 1, index: 0, query: "alpha" },
+    { type: "jv-search-request", id: 1, index: 0, query: "alpha" },
+  ]);
+
+  harness.fromFrame({ type: "jv-search-result", id: 1, matches: [4] });
+  await expect(search).resolves.toEqual([4]);
+});
+
+test("a second failure for the same search settles it as a timeout", async () => {
+  const harness = createHarness();
+  const search = harness.host.search(0, "alpha");
+  harness.fromFrame({ type: "jv-search-ready" });
+
+  harness.fromFrame({ type: "jv-search-failed", id: 1 });
+  harness.fromFrame({ type: "jv-search-failed", id: 1 });
+
+  // One resend, no more: the deadline armed at request time still bounds the
+  // whole thing, so this cannot loop.
+  expect(harness.frames[0].posted).toHaveLength(2);
   await expect(search).rejects.toBeInstanceOf(TreeSearchTimeoutError);
+});
+
+test("a resent search still dies on the original deadline", async () => {
+  const harness = createHarness();
+  const search = harness.host.search(0, "(a+)+$");
+  harness.fromFrame({ type: "jv-search-ready" });
+  harness.fromFrame({ type: "jv-search-failed", id: 1 });
+
+  harness.fire(SEARCH_REQUEST_TIMEOUT_MS);
+
+  await expect(search).rejects.toBeInstanceOf(TreeSearchTimeoutError);
+  expect(harness.frames[0].posted.at(-1)).toEqual({ type: "jv-search-abort", id: 1 });
 });
 
 test("a search the frame reports failed after it went unavailable says so", async () => {
@@ -302,6 +461,30 @@ test("disposing the host removes the frame and drops its listener", async () => 
   await expect(search).rejects.toBeInstanceOf(TreeSearchUnavailableError);
   expect(harness.removed).toBe(1);
   expect(harness.unsubscribed).toBe(1);
+});
+
+test("a disposed host never mounts another frame", async () => {
+  const harness = createHarness();
+  harness.host.search(0, "alpha").catch(() => {});
+  harness.host.dispose();
+
+  await expect(harness.host.search(0, "beta")).rejects.toBeInstanceOf(
+    TreeSearchUnavailableError
+  );
+
+  // Dispose is terminal. A remount here would add a window listener nothing
+  // holds the unsubscribe for any more: the shared host is already unreachable.
+  expect(harness.mountedUrls).toEqual([FRAME_URL]);
+  expect(harness.unsubscribed).toBe(1);
+});
+
+test("disposing a host that never mounted a frame is a no-op", async () => {
+  const harness = createHarness();
+
+  harness.host.dispose();
+
+  expect(harness.mountedUrls).toEqual([]);
+  expect(harness.removed).toBe(0);
 });
 
 // --- the composite index -------------------------------------------------

@@ -7,7 +7,7 @@ import type {
   TreeWorkerResponse,
 } from "./tree-search-protocol";
 import { WORKER_HANDSHAKE_TIMEOUT_MS } from "./tree-search-protocol";
-import { type HostedWorker, createWorkerHost } from "./worker-host";
+import { MAX_NODE_SETS, type HostedWorker, createWorkerHost } from "./worker-host";
 
 class FakeWorker implements HostedWorker {
   readonly posted: TreeWorkerRequest[] = [];
@@ -264,6 +264,57 @@ test("an abort reports the other requests the dead worker was holding", () => {
     { type: "jv-search-ready" },
     { type: "jv-search-failed", id: 2 },
   ]);
+});
+
+test("node sets are capped so an untrusted parent cannot grow them without limit", () => {
+  const harness = createHostHarness();
+  harness.workers[0].reply({ type: "handshake-ok" });
+
+  for (let index = 0; index < MAX_NODE_SETS + 3; index += 1) {
+    harness.host.handleRequest({ type: "jv-search-init", index, nodes });
+  }
+
+  // This frame is web-accessible, so any page can embed it and drive it — see
+  // the comment on MAX_NODE_SETS. Past the cap an init is refused rather than
+  // stored, and the refused sets do not reach the worker either.
+  const inits = harness.workers[0].posted.filter((message) => message.type === "init");
+  expect(inits).toHaveLength(MAX_NODE_SETS);
+
+  // A set already stored is still replaceable — the cap bounds how many are
+  // held, not how often the real content script re-initialises one.
+  harness.host.handleRequest({ type: "jv-search-init", index: 0, nodes });
+  expect(harness.workers[0].posted.filter((message) => message.type === "init")).toHaveLength(
+    MAX_NODE_SETS + 1
+  );
+
+  // And releasing one makes room again.
+  harness.host.handleRequest({ type: "jv-search-release", index: 0 });
+  harness.host.handleRequest({ type: "jv-search-init", index: 99, nodes });
+  expect(harness.workers[0].posted.filter((message) => message.type === "init")).toHaveLength(
+    MAX_NODE_SETS + 2
+  );
+});
+
+test("a search against a refused node set answers empty rather than hanging", () => {
+  const harness = createHostHarness();
+  harness.workers[0].reply({ type: "handshake-ok" });
+  for (let index = 0; index < MAX_NODE_SETS + 1; index += 1) {
+    harness.host.handleRequest({ type: "jv-search-init", index, nodes });
+  }
+
+  harness.host.handleRequest({
+    type: "jv-search-request",
+    id: 1,
+    index: MAX_NODE_SETS,
+    query: "alpha",
+  });
+  harness.workers[0].reply({ type: "result", id: 1, matches: [] });
+
+  expect(harness.parentMessages.at(-1)).toEqual({
+    type: "jv-search-result",
+    id: 1,
+    matches: [],
+  });
 });
 
 test("a release reaches a worker that is already running", () => {

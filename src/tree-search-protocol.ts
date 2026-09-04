@@ -56,20 +56,43 @@ export type TreeWorkerResponse =
   | { type: "handshake-ok" }
   | { type: "result"; id: number; matches: number[] };
 
+// The three timeouts below have to compose inside one 2-second budget: issue
+// #51 requires that a catastrophic pattern settles in the UI within 2 seconds,
+// cold frame or warm. The request deadline is armed when the request is made
+// rather than when it is delivered, so it is the outer bound and the other two
+// are sized to land inside it.
+
+// Bounds one search, from the moment the content script is asked for it to
+// `jv-search-result` — the wait for a frame that has not started yet included.
+// On expiry the content script posts `jv-search-abort`, which terminates the
+// worker, and settles the search as a timeout. 1500 ms leaves 500 ms of the
+// 2-second criterion for the UI to repaint.
+export const SEARCH_REQUEST_TIMEOUT_MS = 1500;
+
 // Bounds the frame document's own start-up: from injecting the iframe to
-// receiving `jv-search-ready` from it. Expiry marks regex mode unavailable for
-// the life of the page — cache that, do not retry per keystroke.
-export const SEARCH_FRAME_READY_TIMEOUT_MS = 3000;
+// receiving `jv-search-ready` from it. 1200 ms is roughly 10x the measured
+// handshake (80-120 ms on Chrome, the same range on Firefox) and still inside
+// the request deadline above, so a cold frame that never answers fails the
+// search rather than outliving it. Expiry is a guess, not a verdict: the next
+// regex search remounts once (SEARCH_FRAME_MOUNT_ATTEMPTS), and only a second
+// silent frame turns regex mode off for the life of the page.
+export const SEARCH_FRAME_READY_TIMEOUT_MS = 1200;
 
 // Bounds the worker handshake inside the frame. A worker that cannot start
 // reports nothing useful — on both browsers the failure is an async `error`
 // event with `message`, `filename` and `lineno` all `undefined` — so a
 // handshake with a timeout is the only available detection. On expiry the
-// frame posts `jv-search-unavailable`.
-export const WORKER_HANDSHAKE_TIMEOUT_MS = 2000;
+// frame posts `jv-search-unavailable`. 1000 ms sits under the frame-readiness
+// budget so the frame's own verdict reaches the content script before that
+// budget expires, which is what turns a dead worker into an immediate,
+// terminal "unavailable" instead of a retried readiness timeout.
+export const WORKER_HANDSHAKE_TIMEOUT_MS = 1000;
 
-// Bounds one search, from `jv-search-request` to `jv-search-result`. On expiry
-// the content script posts `jv-search-abort`, which terminates the worker, and
-// settles the search as a timeout. 1500 ms keeps the whole thing inside the
-// 2-second acceptance criterion.
-export const SEARCH_REQUEST_TIMEOUT_MS = 1500;
+// Runs `handler` after `delayMs` and returns a cancel function. Shared by the
+// content script's frame host and the frame's own worker host, both of which
+// take it as an injectable default so tests drive their deadlines without
+// waiting on real time.
+export function defaultSchedule(handler: () => void, delayMs: number): () => void {
+  const handle = setTimeout(handler, delayMs);
+  return () => clearTimeout(handle);
+}

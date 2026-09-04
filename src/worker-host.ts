@@ -14,7 +14,7 @@ import type {
   TreeWorkerRequest,
   TreeWorkerResponse,
 } from "./tree-search-protocol";
-import { WORKER_HANDSHAKE_TIMEOUT_MS } from "./tree-search-protocol";
+import { WORKER_HANDSHAKE_TIMEOUT_MS, defaultSchedule } from "./tree-search-protocol";
 
 // The part of `Worker` this module uses, so tests can supply a fake.
 export interface HostedWorker {
@@ -43,10 +43,23 @@ export interface WorkerHost {
   handleRequest(message: SearchFrameRequest): void;
 }
 
-function defaultSchedule(handler: () => void, delayMs: number): () => void {
-  const handle = setTimeout(handler, delayMs);
-  return () => clearTimeout(handle);
-}
+// How many node sets this frame will hold at once.
+//
+// `worker-host.html` is a `web_accessible_resources` entry for `<all_urls>`, and
+// a page can read the injected iframe's `src` straight out of its own DOM — so a
+// hostile page can embed this frame itself and speak the protocol to it. The
+// content script's half of the channel validates both `event.source` and
+// `event.origin`; this half can only validate the source, because the frame does
+// not know the embedding page's origin ahead of time and no message from a page
+// can prove one. That asymmetry is accepted rather than closed.
+//
+// What bounds the exposure: the worker is terminable and holds no secrets, and
+// any page can already run its own regex on its own thread, so the compute is
+// not a capability this frame grants. What is left is memory — an unbounded
+// `nodeSets` — which this cap bounds. Eight is generous for the real caller: the
+// content script holds two at a time, the document's and the current JMESPath
+// result's.
+export const MAX_NODE_SETS = 8;
 
 export function createWorkerHost(deps: WorkerHostDeps): WorkerHost {
   const schedule = deps.schedule ?? defaultSchedule;
@@ -180,6 +193,10 @@ export function createWorkerHost(deps: WorkerHostDeps): WorkerHost {
 
       switch (message.type) {
         case "jv-search-init":
+          // Refused past the cap. A search against a set that was never stored
+          // answers with no matches (the worker treats an unknown index as
+          // empty), so a refusal cannot leave anyone waiting.
+          if (!nodeSets.has(message.index) && nodeSets.size >= MAX_NODE_SETS) return;
           nodeSets.set(message.index, message.nodes);
           if (ready) {
             worker?.postMessage({ type: "init", index: message.index, nodes: message.nodes });
@@ -228,7 +245,9 @@ function bootstrapWorkerHost(): void {
   });
 
   window.addEventListener("message", (event) => {
-    // Only the embedding content script may drive this frame.
+    // Only the embedding parent may drive this frame. That is weaker than the
+    // content script's check on the other end, which validates the origin too —
+    // see MAX_NODE_SETS for why this side cannot, and what bounds the damage.
     if (event.source !== window.parent) return;
     const message = event.data as SearchFrameRequest | null;
     if (!message || typeof message.type !== "string") return;

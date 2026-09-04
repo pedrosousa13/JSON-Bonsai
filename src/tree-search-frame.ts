@@ -27,6 +27,7 @@ import type {
 import {
   SEARCH_FRAME_READY_TIMEOUT_MS,
   SEARCH_REQUEST_TIMEOUT_MS,
+  defaultSchedule,
 } from "./tree-search-protocol";
 
 // A search that was killed rather than answered: its worker was terminated
@@ -99,15 +100,25 @@ export interface SearchFrameHost {
 }
 
 interface PendingSearch {
+  index: number;
+  query: string;
   resolve: (matches: number[]) => void;
   reject: (error: Error) => void;
   cancelTimer: (() => void) | null;
+  // Whether the frame has actually been handed this request. False while it is
+  // still sitting in the outbox waiting for the frame to report ready.
+  delivered: boolean;
+  // Whether this request has already been resent after a `jv-search-failed`.
+  resent: boolean;
 }
 
-function defaultSchedule(handler: () => void, delayMs: number): () => void {
-  const handle = setTimeout(handler, delayMs);
-  return () => clearTimeout(handle);
-}
+// How many times a frame is mounted before regex search gives up on the page.
+// Two, because a readiness timeout is a guess rather than a verdict: a loaded
+// machine can miss the budget on a frame that works, and turning regex mode
+// off for the life of the page on one slow start is the wrong trade. An
+// explicit `jv-search-unavailable` from the frame is a real verdict and is
+// terminal on the spot, whatever this says.
+export const SEARCH_FRAME_MOUNT_ATTEMPTS = 2;
 
 export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHost {
   const schedule = deps.schedule ?? defaultSchedule;
@@ -117,6 +128,7 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
   let cancelReadyTimer: (() => void) | null = null;
   let ready = false;
   let unavailable = false;
+  let mounts = 0;
 
   let nextIndex = 0;
   let nextRequestId = 0;
@@ -130,9 +142,10 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
 
   function deliver(message: SearchFrameRequest): void {
     frame?.target?.postMessage(message, deps.frameOrigin);
-    // The deadline covers the frame's turnaround, not the wait for a frame that
-    // has not started yet — so it is armed at the moment the request goes out.
-    if (message.type === "jv-search-request") armDeadline(message.id);
+    if (message.type === "jv-search-request") {
+      const entry = pending.get(message.id);
+      if (entry !== undefined) entry.delivered = true;
+    }
   }
 
   function post(message: SearchFrameRequest): void {
@@ -140,16 +153,22 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
     else outbox.push(message);
   }
 
+  // Armed when the request is *made*, not when it reaches the frame, so it
+  // covers the wait for a frame that has not started yet as well as the search
+  // itself. Arming it on delivery would let a cold first search cost the
+  // readiness budget plus this one, which busts the 2-second criterion.
   function armDeadline(id: number): void {
     const entry = pending.get(id);
     if (entry === undefined) return;
     entry.cancelTimer = schedule(() => {
       entry.cancelTimer = null;
       pending.delete(id);
-      // Aborting terminates the worker, which is the only thing that stops a
-      // regex mid-`test`. The frame respawns and replays the stored inits, so
-      // the next search needs nothing from us.
-      deliver({ type: "jv-search-abort", id });
+      if (entry.delivered) {
+        // Aborting terminates the worker, which is the only thing that stops a
+        // regex mid-`test`. The frame respawns and replays the stored inits, so
+        // the next search needs nothing from us.
+        deliver({ type: "jv-search-abort", id });
+      }
       entry.reject(new TreeSearchTimeoutError());
     }, SEARCH_REQUEST_TIMEOUT_MS);
   }
@@ -163,6 +182,9 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
     }
   }
 
+  // Detaches this mount attempt. The outbox deliberately survives: a readiness
+  // timeout means nothing in it was ever delivered, so a retried mount has to
+  // replay it — the node sets included, which nobody else still holds.
   function teardown(): void {
     cancelReadyTimer?.();
     cancelReadyTimer = null;
@@ -171,14 +193,27 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
     unsubscribe?.();
     unsubscribe = null;
     ready = false;
-    outbox = [];
   }
 
-  // Either the frame said so, or it never answered in time. Both are terminal:
-  // regex search is off for the life of this page, and the frame goes away
-  // rather than being left to report ready late and resurrect itself.
+  // Regex search is off for the life of this page. The frame goes away rather
+  // than being left to report ready late and resurrect itself, and the outbox
+  // is dropped because nothing in it will ever be delivered.
   function markUnavailable(): void {
     unavailable = true;
+    teardown();
+    outbox = [];
+    settleAllWith(new TreeSearchUnavailableError());
+  }
+
+  // The frame never answered. Unlike an explicit `jv-search-unavailable` this
+  // is a guess, so the next regex search gets to mount a fresh frame; only a
+  // second silent frame is taken as proof.
+  function onReadyTimeout(): void {
+    cancelReadyTimer = null;
+    if (mounts >= SEARCH_FRAME_MOUNT_ATTEMPTS) {
+      markUnavailable();
+      return;
+    }
     teardown();
     settleAllWith(new TreeSearchUnavailableError());
   }
@@ -193,7 +228,13 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
 
     const flushing = outbox;
     outbox = [];
-    for (const message of flushing) deliver(message);
+    for (const message of flushing) {
+      // A request whose deadline passed while the frame was starting up is
+      // already settled. Sending it now would only wedge the worker the next
+      // search needs on a pattern nobody is waiting for.
+      if (message.type === "jv-search-request" && !pending.has(message.id)) continue;
+      deliver(message);
+    }
   }
 
   function onResult(id: number, matches: number[]): void {
@@ -209,12 +250,23 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
   function onFailed(id: number): void {
     const entry = pending.get(id);
     if (entry === undefined) return;
+
+    // A failure while the frame still works means this request died with a
+    // worker terminated for someone else's runaway pattern: it never ran, so
+    // neither "timed out" nor "0 results" would be true of it. Resend it once
+    // instead — the frame queues requests until the respawned worker
+    // handshakes, so this rides the new worker with nothing else to arrange.
+    // The deadline armed at request time keeps bounding the whole thing, so a
+    // resend cannot buy extra budget or loop.
+    if (!entry.resent) {
+      entry.resent = true;
+      entry.delivered = false;
+      post({ type: "jv-search-request", id, index: entry.index, query: entry.query });
+      return;
+    }
+
     entry.cancelTimer?.();
     pending.delete(id);
-    // A failure while the frame still works means this request died with a
-    // worker terminated for someone else's runaway pattern — it never ran, and
-    // "timed out" is the honest thing to tell the user. The unavailable case is
-    // already settled by markUnavailable, so it cannot reach here.
     entry.reject(new TreeSearchTimeoutError());
   }
 
@@ -222,8 +274,10 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
     if (frame === null) return;
     // The frame replies with "*" as its target origin — it cannot know the
     // page's origin — so these two checks are the whole of what separates it
-    // from any other script that can post to this window.
-    if (event.source !== frame.target) return;
+    // from any other script that can post to this window. `frame.target` is
+    // null until the frame's document exists, and a message whose own source is
+    // null (posted from a window that has since closed) must not match that.
+    if (frame.target === null || event.source !== frame.target) return;
     if (event.origin !== deps.frameOrigin) return;
 
     const message = event.data as SearchFrameResponse | null;
@@ -250,12 +304,10 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
   // needs is proportional to document size.
   function ensureFrame(): void {
     if (frame !== null || unavailable) return;
+    mounts += 1;
     unsubscribe = deps.onWindowMessage(handleMessage);
     frame = deps.mountFrame(deps.frameUrl);
-    cancelReadyTimer = schedule(() => {
-      cancelReadyTimer = null;
-      markUnavailable();
-    }, SEARCH_FRAME_READY_TIMEOUT_MS);
+    cancelReadyTimer = schedule(onReadyTimeout, SEARCH_FRAME_READY_TIMEOUT_MS);
   }
 
   return {
@@ -271,6 +323,14 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
     },
 
     release(index: number): void {
+      const queuedBefore = outbox.length;
+      outbox = outbox.filter(
+        (message) => !(message.type === "jv-search-init" && message.index === index)
+      );
+      // A node set still in the outbox was never delivered, so dropping it is
+      // the whole release — and it is what keeps a disposed index's nodes from
+      // being retained here while a frame that may never start is retried.
+      if (outbox.length !== queuedBefore) return;
       if (frame === null) return;
       post({ type: "jv-search-release", index });
     },
@@ -282,14 +342,26 @@ export function createSearchFrameHost(deps: SearchFrameHostDeps): SearchFrameHos
       nextRequestId += 1;
       const id = nextRequestId;
       return new Promise<number[]>((resolve, reject) => {
-        pending.set(id, { resolve, reject, cancelTimer: null });
+        pending.set(id, {
+          index,
+          query,
+          resolve,
+          reject,
+          cancelTimer: null,
+          delivered: false,
+          resent: false,
+        });
+        armDeadline(id);
         post({ type: "jv-search-request", id, index, query });
       });
     },
 
+    // Terminal on purpose. The shared host is dropped by the module that owns
+    // it, so a later remount would attach a window listener with no reachable
+    // unsubscribe left — an unremovable listener on a page the viewer has
+    // already left.
     dispose(): void {
-      teardown();
-      settleAllWith(new TreeSearchUnavailableError());
+      markUnavailable();
     },
   };
 }
