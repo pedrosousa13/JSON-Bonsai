@@ -1,15 +1,14 @@
 import { type TreeModel, isContainerNode } from "./tree-model";
+// The node shape lives in the protocol module: the worker matches over nodes
+// that were built here and structured-cloned across, so both sides need one
+// definition. Re-exported so existing importers keep working.
+import type { TreeSearchNode } from "./tree-search-protocol";
 
-interface TreeSearchNode {
-  id: number;
-  searchValue: string;
-  hasLongSearchValue: boolean;
-  rawStringValue?: string;
-  searchKey: string;
-  searchPath: string;
-  isContainer: boolean;
-}
+export type { TreeSearchNode };
 
+// Module-internal: `collectTreeSearchMatches` hands these to
+// `sortTreeSearchMatches`, and every caller of that pair — the local index here
+// and the worker — only ever passes them straight through.
 interface TreeSearchMatch {
   nodeId: number;
   score: number;
@@ -81,7 +80,7 @@ function matchScoreRegex(node: TreeSearchNode, regex: RegExp): number | null {
   return null;
 }
 
-function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
+export function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
   return model.nodes.map((node) => ({
     id: node.id,
     searchValue: node.searchValue,
@@ -98,7 +97,7 @@ function createTreeSearchNodes(model: TreeModel): TreeSearchNode[] {
 
 // `query` arrives ready to match: normalized for a substring search, verbatim
 // for a regex one. Normalizing here would repeat the work on every batch.
-function collectTreeSearchMatches(
+export function collectTreeSearchMatches(
   nodes: readonly TreeSearchNode[],
   query: string,
   start = 0,
@@ -127,7 +126,7 @@ function collectTreeSearchMatches(
   return matches;
 }
 
-function sortTreeSearchMatches(matches: readonly TreeSearchMatch[]): number[] {
+export function sortTreeSearchMatches(matches: readonly TreeSearchMatch[]): number[] {
   return [...matches]
     .sort((left, right) =>
       left.score === right.score ? left.nodeId - right.nodeId : left.score - right.score

@@ -35,10 +35,12 @@ function queryAllAction(container: HTMLElement, path: string): HTMLElement {
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe("createTreeView", () => {
@@ -216,6 +218,71 @@ describe("createTreeView", () => {
     expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
       "data.beta.nested.target"
     );
+  });
+
+  test("a rejected search clears the matches and the render state, then rethrows", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "first" } },
+      beta: { nested: { target: "second" } },
+    });
+    let fail = false;
+    const renderStates: string[] = [];
+    const searchIndex: TreeSearchIndex = {
+      async search(): Promise<number[]> {
+        if (fail) throw new Error("terminated");
+        return [findNodeByPath(model, "data.alpha.nested.target")!.id];
+      },
+      dispose(): void {},
+    };
+    const treeView = createTreeView(container, model, {
+      searchIndex,
+      onRenderStateChange(message) {
+        renderStates.push(message);
+      },
+    });
+
+    await treeView.render();
+    await treeView.search("first");
+    expect(treeView.getSearchState().matchCount).toBe(1);
+
+    fail = true;
+    renderStates.length = 0;
+    await expect(treeView.search("second")).rejects.toThrow("terminated");
+
+    // No stale highlights left over, and the status is not stuck on
+    // "Searching..." — the caller renders the failure itself.
+    expect(treeView.getSearchState().matchCount).toBe(0);
+    expect(container.querySelector(".jv-search-active")).toBeNull();
+    expect(renderStates.at(-1)).toBe("");
+  });
+
+  test("a rejected search that has been superseded leaves the newer one alone", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "first" } },
+      beta: { nested: { target: "second" } },
+    });
+    const failing = createDeferred<number[]>();
+    const searchIndex: TreeSearchIndex = {
+      search(query: string): Promise<number[]> {
+        return query === "first"
+          ? failing.promise
+          : Promise.resolve([findNodeByPath(model, "data.beta.nested.target")!.id]);
+      },
+      dispose(): void {},
+    };
+    const treeView = createTreeView(container, model, { searchIndex });
+
+    await treeView.render();
+    const firstSearch = treeView.search("first");
+    await treeView.search("second");
+
+    failing.reject(new Error("terminated"));
+    await expect(firstSearch).rejects.toThrow("terminated");
+
+    expect(treeView.getSearchState().query).toBe("second");
+    expect(treeView.getSearchState().matchCount).toBe(1);
   });
 
   test("branch toggles reuse the visible row list instead of rebuilding it", async () => {

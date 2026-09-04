@@ -729,7 +729,20 @@ export function createTreeView(
       searchToken += 1;
       const token = searchToken;
       options?.onRenderStateChange?.("Searching...");
-      const matches = await searchIndex.search(effectiveQuery, { regex });
+
+      let matches: number[];
+      try {
+        matches = await searchIndex.search(effectiveQuery, { regex });
+      } catch (error) {
+        // A regex search runs in a terminable worker, so it can fail rather
+        // than answer. Leaving the previous query's highlights up and the
+        // status stuck on "Searching..." would be worse than the failure, so
+        // reset to no-search here and let the caller render the reason.
+        // Guarded on the token — not a `finally` — because a superseded search
+        // must not clear the state of the newer one that owns it now.
+        if (token === searchToken) controller.clearSearch();
+        throw error;
+      }
 
       if (token !== searchToken) {
         return currentSearchState();
