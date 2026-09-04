@@ -173,7 +173,7 @@ export function createLocalTreeSearchIndex(model: TreeModel): TreeSearchIndex {
         // this index down or has already moved on, and the viewer discards a
         // superseded search's ids anyway. Resolving rather than rejecting
         // keeps both the ordinary replace path and an abort free of a
-        // rejection nobody is waiting to handle.
+        // rejection the abandoned caller never asked for.
         if (disposed || options?.signal?.aborted) return [];
 
         const end = Math.min(start + SEARCH_SCAN_BATCH_SIZE, total);
