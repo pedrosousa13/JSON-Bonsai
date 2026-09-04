@@ -324,6 +324,20 @@ function parseJsonScheme(text: string): RawScheme {
   };
 }
 
+// The validation core shared with the stored-custom-theme loader
+// (loadThemeState in theme-settings.ts): every PALETTE_KEYS slot must be
+// present and a normalizable color, or this throws naming the missing key.
+export function parsePalette(raw: Record<string, string>): Base16Palette {
+  const palette = {} as Record<(typeof PALETTE_KEYS)[number], string>;
+  for (const key of PALETTE_KEYS) {
+    const value = raw[key];
+    const hex = value === undefined ? null : normalizeHex(value);
+    if (!hex) throw new Error(`Missing or invalid color for ${key}`);
+    palette[key] = hex;
+  }
+  return palette as Base16Palette;
+}
+
 export function parseScheme(text: string): Base16Scheme {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Paste a base16 scheme first");
@@ -332,13 +346,7 @@ export function parseScheme(text: string): Base16Scheme {
     ? parseJsonScheme(trimmed)
     : parseYamlScheme(trimmed);
 
-  const palette = {} as Record<(typeof PALETTE_KEYS)[number], string>;
-  for (const key of PALETTE_KEYS) {
-    const value = raw.palette[key];
-    const hex = value === undefined ? null : normalizeHex(value);
-    if (!hex) throw new Error(`Missing or invalid color for ${key}`);
-    palette[key] = hex;
-  }
+  const palette = parsePalette(raw.palette);
 
   const name = raw.name?.trim() || "Custom";
   const variant =
@@ -350,6 +358,6 @@ export function parseScheme(text: string): Base16Scheme {
     id: `custom-${slugify(name)}`,
     name,
     variant,
-    palette: palette as Base16Palette,
+    palette,
   };
 }

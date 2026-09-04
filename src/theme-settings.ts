@@ -8,6 +8,7 @@ import {
   DEFAULT_DARK_ID,
   DEFAULT_LIGHT_ID,
   DEFAULT_THEME_ID,
+  parsePalette,
   parseScheme,
   schemeToCssVars,
   type Base16Scheme,
@@ -36,6 +37,24 @@ export function defaultThemeState(): ThemeState {
   return { themeId: DEFAULT_THEME_ID, customs: [] };
 }
 
+// A stored custom theme only reaches schemeToCssVars if it still has the
+// shape of a Base16Scheme — a corrupted or hand-edited entry (e.g. a missing
+// or partial palette) would otherwise throw out of applyTheme(). The id,
+// name and variant are kept as stored, not regenerated: addCustomTheme's
+// dedup-suffixed ids (custom-pasted-2) must survive a load unchanged.
+function validateStoredScheme(raw: unknown): Base16Scheme | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { id, name, variant, palette } = raw as Record<string, unknown>;
+  if (typeof id !== "string" || typeof name !== "string") return null;
+  if (variant !== "dark" && variant !== "light") return null;
+  if (typeof palette !== "object" || palette === null) return null;
+  try {
+    return { id, name, variant, palette: parsePalette(palette as Record<string, string>) };
+  } catch {
+    return null;
+  }
+}
+
 export async function loadThemeState(storage: SettingsStorage): Promise<ThemeState> {
   // One read before first paint, both keys together.
   const stored = await storage.get([THEME_ID_KEY, CUSTOM_THEMES_KEY]);
@@ -54,7 +73,11 @@ export async function loadThemeState(storage: SettingsStorage): Promise<ThemeSta
   if (typeof storedCustoms === "string") {
     try {
       const parsed = JSON.parse(storedCustoms) as unknown;
-      if (Array.isArray(parsed)) customs = parsed as Base16Scheme[];
+      if (Array.isArray(parsed)) {
+        customs = parsed
+          .map(validateStoredScheme)
+          .filter((scheme): scheme is Base16Scheme => scheme !== null);
+      }
     } catch {
       // Corrupted storage — start with no custom themes.
     }
