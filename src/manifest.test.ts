@@ -21,11 +21,19 @@ test("manifest exposes only extension assets needed by content scripts", () => {
   // ordinary static URL and the resource loads — because Firefox already
   // randomises the extension UUID per install. Don't "fix" this back.
   // See docs/research/2026-09-03-firefox-worker-hosting.md.
+  // One consequence worth knowing: with `use_dynamic_url` on, Chrome's
+  // getURL("worker-host.html") returns a per-session GUID host, but the
+  // document that URL loads still runs at the *static* extension origin — and
+  // that static origin is what arrives as `event.origin`. So the frame's origin
+  // check in tree-search-frame.ts derives from getURL("/"), which is never
+  // rotated, rather than from the resource URL.
   // worker-host.html is the iframe the content script injects to host the
   // search worker, so the page has to be able to load it. Its own subresources
   // — worker-host.js and tree-worker.js — are deliberately absent: they are
   // same-origin loads made from inside an extension document, which these
-  // entries do not gate. Verified on Firefox 156.0b2 in the research above.
+  // entries do not gate. Verified on Firefox 156.0b2 in the research above, and
+  // again in Chromium by e2e/regex-search.spec.ts, which drives the real worker
+  // with neither entry present.
   expect(manifest.web_accessible_resources).toEqual([
     {
       resources: ["page-script.js", "content.css", "worker-host.html"],

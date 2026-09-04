@@ -22,6 +22,39 @@ vi.mock("./query-suggest", async (importOriginal) => {
 });
 import { collectKeyUniverse } from "./query-suggest";
 
+// Regex search runs in a worker behind an extension-origin iframe, which jsdom
+// has no way to load. `regexFailure` lets a test make the frame-backed half of
+// the composite index reject the way the real one does, so the two new status
+// states can be driven without faking a frame. Null for every other test, so
+// the real index is untouched.
+let regexFailure: Error | null = null;
+vi.mock("./tree-search-frame", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tree-search-frame")>();
+  return {
+    ...actual,
+    createTreeSearchIndex: (
+      ...args: Parameters<typeof actual.createTreeSearchIndex>
+    ): ReturnType<typeof actual.createTreeSearchIndex> => {
+      const index = actual.createTreeSearchIndex(...args);
+      return {
+        search(query, options) {
+          if (options?.regex && regexFailure !== null) return Promise.reject(regexFailure);
+          return index.search(query, options);
+        },
+        dispose: () => index.dispose(),
+      };
+    },
+  };
+});
+import {
+  TreeSearchTimeoutError,
+  TreeSearchUnavailableError,
+} from "./tree-search-frame";
+
+afterEach(() => {
+  regexFailure = null;
+});
+
 // jsdom doesn't implement scrollIntoView; the suggest list calls it to keep the
 // keyboard-highlighted item in view. Stub it once for every test in this file.
 Element.prototype.scrollIntoView = vi.fn();
@@ -1839,4 +1872,74 @@ test("a resolving storage load still mounts with the stored theme and prefs", as
   expect(
     (document.getElementById("jv-remember-query") as HTMLInputElement).checked
   ).toBe(false);
+});
+
+// One helper for both failure states: they differ only in the error the index
+// rejects with and the message the status shows.
+async function mountAndFailRegexSearch(failure: Error): Promise<{
+  searchStatus: HTMLElement;
+  searchInput: HTMLInputElement;
+  regexToggle: HTMLButtonElement;
+  type: (text: string) => Promise<void>;
+}> {
+  vi.resetModules();
+  stubChrome();
+  resetDocumentWithBody(`<pre>${JSON.stringify({ items: [{ tag: "alpha" }] })}</pre>`);
+
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  document.getElementById("jv-search-toggle")!.click();
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchStatus = document.getElementById("jv-search-status")!;
+  const regexToggle = document.getElementById("jv-search-regex") as HTMLButtonElement;
+
+  async function type(text: string): Promise<void> {
+    searchInput.value = text;
+    searchInput.dispatchEvent(new Event("input"));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  regexFailure = failure;
+  regexToggle.click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  return { searchStatus, searchInput, regexToggle, type };
+}
+
+test("a regex search that times out reports it and leaves plain search working", async () => {
+  const ui = await mountAndFailRegexSearch(new TreeSearchTimeoutError());
+
+  await ui.type("al.ha");
+
+  expect(ui.searchStatus.textContent).toBe("Search timed out");
+  expect(ui.searchStatus.classList.contains("jv-search-error")).toBe(true);
+  expect((document.getElementById("jv-search-prev") as HTMLButtonElement).disabled).toBe(
+    true
+  );
+  expect((document.getElementById("jv-search-next") as HTMLButtonElement).disabled).toBe(
+    true
+  );
+
+  // Plain substring search cannot wedge, so it keeps working while regex is in
+  // a failed state.
+  ui.regexToggle.click();
+  await ui.type("alpha");
+
+  expect(ui.searchStatus.textContent).toBe("1 of 1");
+  expect(ui.searchStatus.classList.contains("jv-search-error")).toBe(false);
+});
+
+test("a page with no usable search frame reports regex unavailable", async () => {
+  const ui = await mountAndFailRegexSearch(new TreeSearchUnavailableError());
+
+  await ui.type("al.ha");
+
+  expect(ui.searchStatus.textContent).toBe("Regex search unavailable here");
+  expect(ui.searchStatus.classList.contains("jv-search-error")).toBe(true);
+
+  ui.regexToggle.click();
+  await ui.type("alpha");
+
+  expect(ui.searchStatus.textContent).toBe("1 of 1");
 });

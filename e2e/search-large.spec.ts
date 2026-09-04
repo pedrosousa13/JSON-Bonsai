@@ -1,8 +1,11 @@
-// Search on a ~100k-node document. There is no search worker: a dedicated
-// worker built from an extension URL is cross-origin in a content script, so
-// the worker path was removed and the main-thread index scans in chunks
-// instead. This spec pins both halves of that — no worker is ever spawned, and
-// the chunked scan keeps every task well under a blocked frame.
+// Search on a ~100k-node document, and where each half of it runs.
+//
+// Plain substring search stays on the main thread: it cannot backtrack, so it
+// cannot wedge, and the index scans in chunks to keep every task short. It
+// spawns nothing. Regex search does the opposite — it runs in a worker owned by
+// a hidden extension-origin frame, because a catastrophic pattern can only be
+// stopped by terminating the thread running it (issue #51). This spec pins both
+// halves: which one spawns a worker, and that neither blocks a frame.
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { launchWithExtension, serveJson, type FixtureServer } from "./helpers";
 
@@ -81,7 +84,8 @@ test("substring search finds its match without spawning a worker or blocking a f
   const longest = await longestTaskMs("substring search", Date.now() - started);
 
   await expect(page.locator(".jv-line.jv-search-active")).toHaveCount(1);
-  // The worker path was removed; nothing in the viewer spawns one any more.
+  // Substring search never leaves the main thread, and the frame that hosts the
+  // regex worker is only injected on the first regex search.
   expect(workerUrls).toEqual([]);
   expect(longest).toBeLessThan(100);
 });
@@ -101,6 +105,8 @@ test("regex search stays off the critical path too", async () => {
   });
   const longest = await longestTaskMs("regex search", Date.now() - started);
 
-  expect(workerUrls).toEqual([]);
+  // Regex search is the half that does spawn one, from inside the frame.
+  expect(workerUrls.length).toBeGreaterThan(0);
+  for (const url of workerUrls) expect(url).toMatch(/\/tree-worker\.js$/);
   expect(longest).toBeLessThan(100);
 });

@@ -1,10 +1,12 @@
 import { buildTreeModel, type JsonValue, type TreeModel } from "./tree-model";
 import { createTreeView, setupHoverPath, type TreeViewController } from "./viewer";
+import { compileSearchRegex, type TreeSearchIndex } from "./tree-search";
 import {
-  compileSearchRegex,
-  createLocalTreeSearchIndex,
-  type TreeSearchIndex,
-} from "./tree-search";
+  TreeSearchTimeoutError,
+  TreeSearchUnavailableError,
+  createTreeSearchIndex,
+  disposeSharedSearchFrame,
+} from "./tree-search-frame";
 import { toJsonSchema } from "./schema";
 import { flashLabel, FLASH_LABEL_MS } from "./flash-label";
 import {
@@ -347,7 +349,16 @@ async function init(): Promise<void> {
   let searchTimer: number | null = null;
   // Regex mode applies to tree search only; the table filter stays substring.
   let searchRegexEnabled = false;
-  let searchRegexError = false;
+  // The mutually exclusive reasons tree search has nothing to show. One value
+  // rather than a flag each, so two of them can never be set at once, and only
+  // updateSearchUi turns it into text.
+  type SearchFailure = "invalid-regex" | "timed-out" | "regex-unavailable";
+  const SEARCH_FAILURE_TEXT: Record<SearchFailure, string> = {
+    "invalid-regex": "Invalid regex",
+    "timed-out": "Search timed out",
+    "regex-unavailable": "Regex search unavailable here",
+  };
+  let searchFailure: SearchFailure | null = null;
   let activeQueryResult: { expression: string; result: JsonValue } | null = null;
   let tableView: TableViewController | null = null;
 
@@ -506,7 +517,7 @@ async function init(): Promise<void> {
       searchTimer = null;
     }
     searchInput.value = "";
-    searchRegexError = false;
+    searchFailure = null;
     updateSearchUi();
   }
 
@@ -544,7 +555,7 @@ async function init(): Promise<void> {
     setView(originPrefs.view);
   }
 
-  originalSearchIndex = createLocalTreeSearchIndex(model);
+  originalSearchIndex = createTreeSearchIndex(model);
   await mountTree(model, originalSearchIndex);
 
   // Reapply this origin's saved depth (skipping the write — the payload
@@ -792,8 +803,8 @@ async function init(): Promise<void> {
       return;
     }
 
-    if (searchRegexError) {
-      searchStatus.textContent = "Invalid regex";
+    if (searchFailure !== null) {
+      searchStatus.textContent = SEARCH_FAILURE_TEXT[searchFailure];
       searchStatus.classList.add("jv-search-error");
       searchPrevBtn.disabled = true;
       searchNextBtn.disabled = true;
@@ -825,13 +836,28 @@ async function init(): Promise<void> {
       // Validate the regex up front so an invalid pattern shows an inline
       // error instead of scanning the whole tree for zero matches.
       if (searchRegexEnabled && query && compileSearchRegex(query) === null) {
-        searchRegexError = true;
+        searchFailure = "invalid-regex";
         treeView.clearSearch();
         updateSearchUi();
         return;
       }
-      searchRegexError = false;
-      await treeView.search(query, searchRegexEnabled);
+      searchFailure = null;
+      try {
+        await treeView.search(query, searchRegexEnabled);
+      } catch (error) {
+        // Regex search runs in a worker that gets terminated rather than
+        // waited on, so it can fail instead of answering. The viewer has
+        // already cleared its own state; all that is left is to say why.
+        // There is deliberately no main-thread retry: running a catastrophic
+        // pattern here is the bug this whole path exists to avoid.
+        if (error instanceof TreeSearchTimeoutError) {
+          searchFailure = "timed-out";
+        } else if (error instanceof TreeSearchUnavailableError) {
+          searchFailure = "regex-unavailable";
+        } else {
+          throw error;
+        }
+      }
     }
     updateSearchUi();
   }
@@ -1051,7 +1077,7 @@ async function init(): Promise<void> {
   function closeSearchPanel(): void {
     searchPanel.hidden = true;
     closeSearchHistory();
-    searchRegexError = false;
+    searchFailure = null;
     if (searchTimer !== null) {
       window.clearTimeout(searchTimer);
       searchTimer = null;
@@ -1293,7 +1319,7 @@ async function init(): Promise<void> {
     // exactNumbers applies to the result too — see renderTextView().
     const resultModel = buildTreeModel(outcome.result, exactNumbers);
     resultSearchIndex?.dispose();
-    resultSearchIndex = createLocalTreeSearchIndex(resultModel);
+    resultSearchIndex = createTreeSearchIndex(resultModel);
     await mountTree(resultModel, resultSearchIndex);
     refreshViewsForDocument();
     // Remember this query (and add it to history) for the origin when on.
@@ -1412,6 +1438,9 @@ async function init(): Promise<void> {
     originPrefsWriter.flush();
     originalSearchIndex?.dispose();
     resultSearchIndex?.dispose();
+    // Both indexes share one frame, so it outlives either of them and is only
+    // torn down here.
+    disposeSharedSearchFrame();
   });
 
   // All toolbar controls now exist; apply the per-view enabled/disabled state

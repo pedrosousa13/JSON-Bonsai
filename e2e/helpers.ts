@@ -31,11 +31,13 @@ export interface FixtureServer {
 }
 
 // Serves the given payload for every path; pass a function to vary by URL.
+// `extraHeaders` adds response headers — a page CSP, say.
 export async function serveJson(
-  payload: string | ((url: string) => string)
+  payload: string | ((url: string) => string),
+  extraHeaders: Record<string, string> = {}
 ): Promise<FixtureServer> {
   const server = createServer((req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json", ...extraHeaders });
     res.end(typeof payload === "function" ? payload(req.url ?? "/") : payload);
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
