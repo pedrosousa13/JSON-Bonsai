@@ -684,19 +684,19 @@ async function init(): Promise<void> {
     persistOriginPrefs();
   }
 
-  // Depth, search, and the JMESPath query act on the tree (and search/query
-  // also on the table). They do nothing in the static text views (formatted,
-  // raw, schema), so disable them there and close any panel left open.
+  // Depth and search act on the tree (search also on the table); they do
+  // nothing in the static text views (formatted, raw, schema), so disable
+  // them there and close search if it was left open. The JMESPath query is
+  // different: it transforms the whole document, and the text views already
+  // render the transformed result, so it stays enabled everywhere.
   function updateViewControls(): void {
     if (!viewControlsReady) return;
     const isTree = currentView === "tree";
     const treeOrTable = isTree || currentView === "table";
     levelSelect.disabled = !isTree;
     searchToggleBtn.disabled = !treeOrTable;
-    queryToggleBtn.disabled = !treeOrTable;
     if (!treeOrTable) {
       if (!searchPanel.hidden) closeSearchPanel();
-      if (!queryPanel.hidden) closeQueryPanel();
     }
   }
 
@@ -1255,8 +1255,9 @@ async function init(): Promise<void> {
   }
 
   function openQueryPanel(): void {
-    // Querying produces a tree/table result — no-op in the static text views.
-    if (currentView !== "tree" && currentView !== "table") return;
+    // Unlike search, a query transforms the whole document, and the static
+    // text views already render the transformed result — so this opens from
+    // any view, with no tree/table guard.
     // Only one popup at a time: close the search panel and settings menu.
     closeSearchPanel();
     themeSettings.closeMenu();
