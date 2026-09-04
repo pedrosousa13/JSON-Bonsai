@@ -5,7 +5,11 @@ import { describe, expect, test } from "vitest";
 import { buildTreeModel, findNodeByPath } from "./tree-model";
 import type { ExactNumberMap } from "./lossless-numbers";
 import { createTreeView } from "./viewer";
-import { createLocalTreeSearchIndex, type TreeSearchIndex } from "./tree-search";
+import {
+  createLocalTreeSearchIndex,
+  type TreeSearchIndex,
+  type TreeSearchOptions,
+} from "./tree-search";
 import { runQuery } from "./query";
 import { composeNodeQuery, projectLastIndex } from "./query-suggest";
 
@@ -229,7 +233,7 @@ describe("createTreeView", () => {
     const signals: (AbortSignal | undefined)[] = [];
     const stale = createDeferred<number[]>();
     const searchIndex: TreeSearchIndex = {
-      search(query: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+      search(query: string, options?: TreeSearchOptions): Promise<number[]> {
         signals.push(options?.signal);
         return query === "first"
           ? stale.promise
@@ -261,7 +265,7 @@ describe("createTreeView", () => {
     const signals: (AbortSignal | undefined)[] = [];
     const pending = createDeferred<number[]>();
     const searchIndex: TreeSearchIndex = {
-      search(_query: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+      search(_query: string, options?: TreeSearchOptions): Promise<number[]> {
         signals.push(options?.signal);
         return pending.promise;
       },
@@ -287,7 +291,7 @@ describe("createTreeView", () => {
     });
     const signals: (AbortSignal | undefined)[] = [];
     const searchIndex: TreeSearchIndex = {
-      search(query: string, options?: { signal?: AbortSignal }): Promise<number[]> {
+      search(query: string, options?: TreeSearchOptions): Promise<number[]> {
         signals.push(options?.signal);
         const path = query === "first" ? "data.alpha.nested.target" : "data.beta.nested.target";
         return Promise.resolve([findNodeByPath(model, path)!.id]);
