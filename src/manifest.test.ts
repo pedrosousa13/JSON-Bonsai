@@ -21,9 +21,14 @@ test("manifest exposes only extension assets needed by content scripts", () => {
   // ordinary static URL and the resource loads — because Firefox already
   // randomises the extension UUID per install. Don't "fix" this back.
   // See docs/research/2026-09-03-firefox-worker-hosting.md.
+  // worker-host.html is the iframe the content script injects to host the
+  // search worker, so the page has to be able to load it. Its own subresources
+  // — worker-host.js and tree-worker.js — are deliberately absent: they are
+  // same-origin loads made from inside an extension document, which these
+  // entries do not gate. Verified on Firefox 156.0b2 in the research above.
   expect(manifest.web_accessible_resources).toEqual([
     {
-      resources: ["page-script.js", "content.css"],
+      resources: ["page-script.js", "content.css", "worker-host.html"],
       matches: ["<all_urls>"],
       use_dynamic_url: true,
     },

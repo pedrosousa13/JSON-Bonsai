@@ -9,7 +9,9 @@ const watch = process.argv.includes("--watch");
 
 // One IIFE bundle per entry. content.ts imports viewer.css, so esbuild emits
 // dist/content.css alongside dist/content.js (manifest references both).
-const entries = ["content", "page-script"];
+// worker-host is the script of the extension-origin iframe the content script
+// injects; tree-worker is the search worker that frame spawns.
+const entries = ["content", "page-script", "worker-host", "tree-worker"];
 
 const options = (name) => ({
   entryPoints: [resolve(root, `src/${name}.ts`)],
@@ -28,6 +30,7 @@ const icons = ["icon16.png", "icon48.png", "icon128.png"];
 
 function copyStatic() {
   cpSync(resolve(root, "manifest.json"), resolve(dist, "manifest.json"));
+  cpSync(resolve(root, "worker-host.html"), resolve(dist, "worker-host.html"));
   mkdirSync(resolve(dist, "icons"), { recursive: true });
   for (const icon of icons) {
     cpSync(resolve(root, "icons", icon), resolve(dist, "icons", icon));

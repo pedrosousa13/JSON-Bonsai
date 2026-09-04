@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>JSON Bonsai search worker host</title>
+  </head>
+  <body>
+    <!-- The content script injects this document as a hidden iframe. It runs at
+    the extension origin, so it can host a terminable search worker that page
+    CSP cannot block. Extension CSP forbids inline script, hence the src. -->
+    <script src="worker-host.js"></script>
+  </body>
+</html>
