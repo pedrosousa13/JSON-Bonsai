@@ -72,6 +72,49 @@ export function numberLosesPrecision(source: string, value: number): boolean {
   return canonicalNumber(source) !== canonicalNumber(String(value));
 }
 
+// The affix and tooltip the structured views (tree, table) put on a number
+// whose exact source text is unavailable, and the one document-level note the
+// text views (formatted, raw, schema) show instead — an inline marker there
+// would corrupt the JSON. Shared so all three read the same wording.
+export const ROUNDED_NUMBER_MARKER = "⚠";
+export const ROUNDED_NUMBER_TITLE =
+  "The exact source text for this value is unavailable; the digits shown are the nearest JavaScript number.";
+export const ROUNDED_NUMBER_NOTE =
+  "Some numbers here are shown without their exact source text — the digits are the nearest JavaScript number. Tree view marks which.";
+
+// True when `value` is a number the viewer cannot show exactly: an integer
+// outside the range a double represents exactly, with no exact source text
+// (`exactText`) found for it. Both halves matter. A lossy number reached
+// through its original holder still resolves to exact text, so an unqueried
+// document stays quiet; only a value that genuinely lost its text — a query
+// that projected a new container, say — is marked.
+//
+// `exactNumbers === null` (or absent) means the engine has no reviver source,
+// so it cannot tell exact from rounded for *any* value. Marking every unsafe
+// integer there would fire on documents whose source genuinely did say the
+// rounded value, so mark nothing instead.
+//
+// Known false positive, accepted: an integer at or beyond 2^53 that *is*
+// exactly representable (9007199254740992) never enters the ExactNumberMap,
+// because nothing was lost — so this marks it even in an unqueried document.
+// Telling that case apart needs exactness keyed by something other than holder
+// identity (source positions, or boxed numbers), which pedrosousa13/JSON-Bonsai#87
+// declined. The wording above stays true under it: the exact source text really
+// is unavailable, which is not the same claim as "this value is wrong".
+export function exactTextUnavailable(
+  value: JsonValue | undefined,
+  exactText: string | null | undefined,
+  exactNumbers: ExactNumberMap | null | undefined
+): boolean {
+  if (exactNumbers === null || exactNumbers === undefined) return false;
+  if (exactText !== null && exactText !== undefined) return false;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    !Number.isSafeInteger(value)
+  );
+}
+
 // A double reproduces any decimal of 15 significant digits or fewer exactly
 // (that is what DBL_DIG = 15 means), so a token can only lose something if it
 // carries 16 significant digits or more, overflows to Infinity, underflows to

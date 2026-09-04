@@ -1,4 +1,4 @@
-import type { ExactNumberMap } from "./lossless-numbers";
+import { exactTextUnavailable, type ExactNumberMap } from "./lossless-numbers";
 import { truncateCodePoints } from "./truncate";
 
 export type JsonValue =
@@ -30,6 +30,10 @@ export interface JsonNode {
   // Exact source text for numbers JSON.parse couldn't represent losslessly;
   // null for everything else. Display and copy prefer it over `value`.
   numberText: string | null;
+  // This number's exact source text is unavailable and the digits in `value`
+  // are only the nearest double — see exactTextUnavailable(). Display marks it;
+  // copy, export and search ignore it.
+  numberIsRounded: boolean;
   isArrayElement: boolean;
   // This node is an array element, or descends from one. Equivalently: its path
   // carries a real array index, so it can be generalized with `[*]`.
@@ -48,6 +52,10 @@ export interface TreeModel {
   rootId: number;
   maxDepth: number;
   totalNodes: number;
+  // Any node carries numberIsRounded. The text views cannot mark a value
+  // inline without corrupting the JSON, so they show one document-level note
+  // off this instead.
+  hasRoundedNumbers: boolean;
 }
 
 const SEARCH_VALUE_PREVIEW_LIMIT = 200;
@@ -135,6 +143,7 @@ export function buildTreeModel(
   const nodes: JsonNode[] = [];
   let maxDepth = 0;
   let rootId = 0;
+  let hasRoundedNumbers = false;
 
   // Iterative pre-order traversal with an explicit stack. Children are pushed
   // in reverse so they pop in forward order, preserving the recursive layout
@@ -163,6 +172,8 @@ export function buildTreeModel(
     const label = buildLabel(type, childCount);
     // Index the exact source text so searching for the real digits matches.
     const { searchValue, hasLongSearchValue } = buildSearchValue(numberText ?? value);
+    const numberIsRounded = exactTextUnavailable(value, numberText, exactNumbers);
+    if (numberIsRounded) hasRoundedNumbers = true;
 
     const node: JsonNode = {
       id: nodes.length,
@@ -175,6 +186,7 @@ export function buildTreeModel(
       type,
       value,
       numberText,
+      numberIsRounded,
       isArrayElement,
       inArray,
       isLast,
@@ -246,6 +258,7 @@ export function buildTreeModel(
     rootId,
     maxDepth,
     totalNodes: nodes.length,
+    hasRoundedNumbers,
   };
 }
 
