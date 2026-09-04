@@ -225,6 +225,67 @@ describe("inferSchema", () => {
       },
     });
   });
+
+  describe("merging deeply nested siblings (issue #73)", () => {
+    // Builds a `depth`-deep chain ending in `leaf`, wrapping one level at a
+    // time with `wrap`, e.g. nestWith(2, 1, (v) => [v]) => [[1]].
+    function nestWith(depth: number, leaf: unknown, wrap: (value: unknown) => unknown): unknown {
+      let value = leaf;
+      for (let i = 0; i < depth; i++) value = wrap(value);
+      return value;
+    }
+
+    // Walks `depth` levels of the merged schema without recursing — a
+    // recursive walk here would just move the stack limit into the assertion
+    // — asserting each level's shape via `step` (which also returns the next
+    // node down), then checks the leaf actually merged both variants instead
+    // of dropping one, which is the #43 bug this is guarding against.
+    function assertMergedNest(schema: any, depth: number, leaf: object, step: (node: any) => any) {
+      let node = schema;
+      for (let i = 0; i < depth; i++) node = step(node);
+      expect(node).toEqual(leaf);
+    }
+
+    function assertArrayStep(node: any): any {
+      expect(node.type).toBe("array");
+      return node.items;
+    }
+
+    // Steps through {type:"object", properties:{a:...}, required:["a"]}.
+    function assertObjectStep(node: any): any {
+      expect(node.type).toBe("object");
+      expect(node.required).toEqual(["a"]);
+      return node.properties.a;
+    }
+
+    const scalarVariants = { anyOf: [{ type: "number" }, { type: "string" }] };
+    const nestAsArray = (v: unknown) => [v];
+    const nestAsObject = (v: unknown) => ({ a: v });
+
+    test("merges sibling nested arrays at depth 5000 without blowing the call stack", () => {
+      const schema = inferSchema([nestWith(5000, 1, nestAsArray), nestWith(5000, "x", nestAsArray)]) as { type: string; items: object };
+      expect(schema.type).toBe("array");
+      assertMergedNest(schema.items, 5000, scalarVariants, assertArrayStep);
+    });
+
+    test("merges sibling nested arrays at depth 100000, confirming the merge is heap-bound rather than just deeper", () => {
+      const schema = inferSchema([nestWith(100_000, 1, nestAsArray), nestWith(100_000, "x", nestAsArray)]) as { type: string; items: object };
+      expect(schema.type).toBe("array");
+      assertMergedNest(schema.items, 100_000, scalarVariants, assertArrayStep);
+    });
+
+    test("merges sibling nested objects at depth 5000 without blowing the call stack", () => {
+      const schema = inferSchema([nestWith(5000, 1, nestAsObject), nestWith(5000, "x", nestAsObject)]) as { type: string; items: object };
+      expect(schema.type).toBe("array");
+      assertMergedNest(schema.items, 5000, scalarVariants, assertObjectStep);
+    });
+
+    test("merges sibling nested objects at depth 100000, confirming the merge is heap-bound rather than just deeper", () => {
+      const schema = inferSchema([nestWith(100_000, 1, nestAsObject), nestWith(100_000, "x", nestAsObject)]) as { type: string; items: object };
+      expect(schema.type).toBe("array");
+      assertMergedNest(schema.items, 100_000, scalarVariants, assertObjectStep);
+    });
+  });
 });
 
 describe("toJsonSchema", () => {

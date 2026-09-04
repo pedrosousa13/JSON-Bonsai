@@ -1,4 +1,5 @@
-// Iterative (explicit stack) so deeply nested JSON can't blow the call stack.
+// Iterative (explicit stack), for both walking and merging, so deeply nested
+// JSON can't blow the call stack.
 export function inferSchema(value: unknown): object {
   let rootSchema: object = {};
 
@@ -61,56 +62,86 @@ export function inferSchema(value: unknown): object {
   return rootSchema;
 }
 
+// A pending merge of `a` into `b`, to be applied by writing the result into
+// whatever slot it came from (a property, an array's `items`, ...).
+type MergeTask = { a: object; b: object; assign: (merged: object) => void };
+
 // Merges `b` into `a` in place and returns `a`. Mutating `a` is safe because
 // every caller replaces the slot it came from with the result: the reduce above
 // overwrites the accumulator, and `mergeSchemas` rebuilds its `anyOf` wrapper on
 // every merge, carrying the mutated variant forward. In-place merging avoids
 // copying the accumulated properties on every merge — that copy made schema
 // inference O(n^2) over arrays of objects with many distinct keys.
-function mergeObjectSchemas(a: any, b: any): object {
+//
+// Handles one level of properties; a property whose value needs merging is
+// queued onto `stack` rather than merged recursively, so a chain of nested
+// objects doesn't grow the call stack.
+function mergeObjectSchemas(a: any, b: any, stack: MergeTask[]): object {
   const properties: Record<string, object> = a.properties ?? (a.properties = Object.create(null));
   const bReq = new Set<string>(b.required ?? []);
 
   for (const [k, v] of Object.entries(b.properties ?? {})) {
-    properties[k] = Object.prototype.hasOwnProperty.call(properties, k)
-      ? mergeSchemas(properties[k] as object, v as object)
-      : (v as object);
+    if (Object.prototype.hasOwnProperty.call(properties, k)) {
+      stack.push({ a: properties[k], b: v as object, assign: (merged) => { properties[k] = merged; } });
+    } else {
+      properties[k] = v as object;
+    }
   }
 
   a.required = (a.required ?? []).filter((k: string) => bReq.has(k));
   return a;
 }
 
-function mergeSchemas(a: object, b: object): object {
-  const ta = (a as any).type;
-  const tb = (b as any).type;
+// A work queue of (a, b, assign) tasks stands in for recursive descent here,
+// matching `inferSchema`'s walker.
+function mergeSchemas(aRoot: object, bRoot: object): object {
+  let result: object = aRoot;
+  const stack: MergeTask[] = [
+    { a: aRoot, b: bRoot, assign: (merged) => { result = merged; } },
+  ];
 
-  if (ta === "object" && tb === "object") return mergeObjectSchemas(a, b);
+  while (stack.length > 0) {
+    const { a, b, assign } = stack.pop()!;
+    const ta = (a as any).type;
+    const tb = (b as any).type;
 
-  // Flatten existing anyOf to avoid nesting
-  const variantsA: object[] = (a as any).anyOf ?? [a];
-  const variantsB: object[] = (b as any).anyOf ?? [b];
+    if (ta === "object" && tb === "object") {
+      assign(mergeObjectSchemas(a, b, stack));
+      continue;
+    }
 
-  const merged = [...variantsA];
-  for (const v of variantsB) {
-    const vt = (v as any).type;
-    const existing: any = merged.find(m => (m as any).type === vt);
-    if (!existing) { merged.push(v); continue; }
-    // Same type: fold the newcomer into the variant already there, so a second
-    // object or array shape widens it instead of being dropped. Scalars (and
-    // the untyped `{}` fallback) carry nothing to merge, so they dedupe.
-    if (vt === "object") mergeObjectSchemas(existing, v);
-    else if (vt === "array") {
-      const bItems = (v as any).items;
-      if (bItems !== undefined) {
-        existing.items = existing.items !== undefined
-          ? mergeSchemas(existing.items, bItems)
-          : bItems;
+    // Flatten existing anyOf to avoid nesting
+    const variantsA: object[] = (a as any).anyOf ?? [a];
+    const variantsB: object[] = (b as any).anyOf ?? [b];
+
+    const merged = [...variantsA];
+    for (const v of variantsB) {
+      const vt = (v as any).type;
+      const existing: any = merged.find(m => (m as any).type === vt);
+      if (!existing) { merged.push(v); continue; }
+      // Same type: fold the newcomer into the variant already there, so a second
+      // object or array shape widens it instead of being dropped. Scalars (and
+      // the untyped `{}` fallback) carry nothing to merge, so they dedupe.
+      if (vt === "object") {
+        // `existing` is mutated in place by the object merge, so there's
+        // nothing to write back.
+        stack.push({ a: existing, b: v, assign: () => {} });
+      } else if (vt === "array") {
+        const bItems = (v as any).items;
+        if (bItems !== undefined) {
+          if (existing.items !== undefined) {
+            stack.push({ a: existing.items, b: bItems, assign: (result) => { existing.items = result; } });
+          } else {
+            existing.items = bItems;
+          }
+        }
       }
     }
+
+    assign(merged.length === 1 ? merged[0] : { anyOf: merged });
   }
 
-  return merged.length === 1 ? merged[0] : { anyOf: merged };
+  return result;
 }
 
 export function toJsonSchema(data: unknown): string {
