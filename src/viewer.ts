@@ -740,6 +740,9 @@ export function createTreeView(
 
       let matches: number[];
       try {
+        // The signal goes out on every search, but only the local substring
+        // scan honours it: the composite index sends a regex to the frame
+        // worker, which is bounded by its own deadline instead.
         matches = await searchIndex.search(effectiveQuery, { regex, signal });
       } catch (error) {
         // A regex search runs in a terminable worker, so it can fail rather
