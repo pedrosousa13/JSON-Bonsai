@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import {
   createThemeSettings,
   defaultThemeState,
   loadThemeState,
   type SettingsStorage,
+  type ThemeSettingsController,
+  type ThemeSettingsOptions,
 } from "./theme-settings";
 import {
   BUILTIN_SCHEMES,
@@ -40,6 +42,31 @@ function fakeStorage(initial: Record<string, string> = {}): {
       async set(items) {
         for (const [key, value] of Object.entries(items)) store.set(key, value);
       },
+    },
+  };
+}
+
+// Node reports a floating promise nobody handled through `process`, not through
+// jsdom's window — a rejection raised inside theme-settings.ts is created in the
+// Node realm, so window.onunhandledrejection never sees it.
+function watchUnhandledRejections(): { reasons: unknown[]; stop: () => void } {
+  const reasons: unknown[] = [];
+  const handler = (reason: unknown) => reasons.push(reason);
+  process.on("unhandledRejection", handler);
+  return { reasons, stop: () => process.off("unhandledRejection", handler) };
+}
+
+// An invalidated extension context breaks a write in both shapes: the promise
+// rejects, or `set` throws before it ever returns one.
+function failingStorage(mode: "rejects" | "throws"): SettingsStorage {
+  return {
+    async get() {
+      return {};
+    },
+    set() {
+      const error = new Error("Extension context invalidated.");
+      if (mode === "throws") throw error;
+      return Promise.reject(error);
     },
   };
 }
@@ -268,6 +295,112 @@ test("the toggles start from the injected values, then persist and report", () =
   expect(onExposeWindowDataChange).toHaveBeenCalledWith(true);
   expect(store.get("jv-expose-window-data")).toBe("1");
 });
+
+// A write that fails costs only that write: nothing reaches the console
+// unhandled, and no UI update is abandoned halfway.
+for (const mode of ["rejects", "throws"] as const) {
+  type ToggleCallbacks = Pick<
+    ThemeSettingsOptions,
+    "onRememberQueryChange" | "onExposeWindowDataChange"
+  >;
+
+  function settingsOverFailingStorage(
+    root: HTMLElement,
+    callbacks: Partial<ToggleCallbacks> = {}
+  ): ThemeSettingsController {
+    return createThemeSettings({
+      root,
+      state: defaultThemeState(),
+      storage: failingStorage(mode),
+      rememberQuery: true,
+      exposeWindowData: false,
+      onRememberQueryChange: callbacks.onRememberQueryChange ?? vi.fn(),
+      onExposeWindowDataChange: callbacks.onExposeWindowDataChange ?? vi.fn(),
+      onMenuOpen: vi.fn(),
+    });
+  }
+
+  function pasteCustomScheme(root: HTMLElement): void {
+    root.querySelector<HTMLTextAreaElement>("#jv-theme-paste")!.value = JSON.stringify({
+      name: "Pasted",
+      variant: "dark",
+      palette: Object.fromEntries(PALETTE_KEYS.map((key) => [key, "#101010"])),
+    });
+    root.querySelector<HTMLButtonElement>("#jv-theme-add")!.click();
+  }
+
+  test(`the toggles and the theme select still work when storage ${mode}`, async () => {
+    const root = mountRoot();
+    // Registered at creation so a failing assertion below cannot leave the
+    // process listener installed for the rest of the worker.
+    const watch = watchUnhandledRejections();
+    onTestFinished(watch.stop);
+    const onRememberQueryChange = vi.fn();
+    const onExposeWindowDataChange = vi.fn();
+    const settings = settingsOverFailingStorage(root, {
+      onRememberQueryChange,
+      onExposeWindowDataChange,
+    });
+    settings.mountMenu();
+
+    root.querySelector<HTMLInputElement>("#jv-remember-query")!.click();
+    root.querySelector<HTMLInputElement>("#jv-expose-data")!.click();
+
+    const other = BUILTIN_SCHEMES.find(
+      (s) => s.variant === "light" && s.id !== DEFAULT_THEME_ID
+    )!;
+    const select = root.querySelector<HTMLSelectElement>("#jv-theme-select")!;
+    select.value = other.id;
+    select.dispatchEvent(new Event("change"));
+
+    // Each handler runs past the failed write: the toggles report, the theme
+    // repaints.
+    expect(onRememberQueryChange).toHaveBeenCalledWith(false);
+    expect(onExposeWindowDataChange).toHaveBeenCalledWith(true);
+    expect(settings.themeId()).toBe(other.id);
+    expect(root.style.getPropertyValue("--bg")).toBe(other.palette.base00);
+
+    // Give a rejection the turn it needs to be reported as unhandled.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(watch.reasons).toEqual([]);
+  });
+
+  test(`a pasted scheme is listed and painted when storage ${mode}`, async () => {
+    const root = mountRoot();
+    const watch = watchUnhandledRejections();
+    onTestFinished(watch.stop);
+    const settings = settingsOverFailingStorage(root);
+    settings.mountMenu();
+
+    pasteCustomScheme(root);
+
+    expect(root.querySelectorAll("#jv-custom-list li").length).toBe(1);
+    expect(settings.themeId()).toBe("custom-pasted");
+    expect(root.style.getPropertyValue("--bg")).toBe("#101010");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(watch.reasons).toEqual([]);
+  });
+
+  test(`deleting the selected custom scheme falls back when storage ${mode}`, async () => {
+    const root = mountRoot();
+    const settings = settingsOverFailingStorage(root);
+    settings.mountMenu();
+    pasteCustomScheme(root);
+
+    const watch = watchUnhandledRejections();
+    onTestFinished(watch.stop);
+    root.querySelector<HTMLButtonElement>("#jv-custom-list li button")!.click();
+
+    expect(root.querySelectorAll("#jv-custom-list li").length).toBe(0);
+    expect(settings.themeId()).toBe(DEFAULT_THEME_ID);
+    const fallback = BUILTIN_SCHEMES.find((s) => s.id === DEFAULT_THEME_ID)!;
+    expect(root.style.getPropertyValue("--bg")).toBe(fallback.palette.base00);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(watch.reasons).toEqual([]);
+  });
+}
 
 test("the toggle opens the menu once, and an outside click or closeMenu shuts it", () => {
   const root = mountRoot();
