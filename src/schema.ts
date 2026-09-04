@@ -1,4 +1,5 @@
-// Iterative (explicit stack) so deeply nested JSON can't blow the call stack.
+// Iterative (explicit stack), for both walking and merging, so deeply nested
+// JSON can't blow the call stack.
 export function inferSchema(value: unknown): object {
   let rootSchema: object = {};
 
@@ -91,9 +92,8 @@ function mergeObjectSchemas(a: any, b: any, stack: MergeTask[]): object {
   return a;
 }
 
-// Iterative (explicit stack), like `inferSchema`'s walker: a work queue of
-// (a, b, assign) tasks stands in for recursive descent, so merging two
-// deeply nested siblings can't blow the call stack either.
+// A work queue of (a, b, assign) tasks stands in for recursive descent here,
+// matching `inferSchema`'s walker.
 function mergeSchemas(aRoot: object, bRoot: object): object {
   let result: object = aRoot;
   const stack: MergeTask[] = [
@@ -122,12 +122,15 @@ function mergeSchemas(aRoot: object, bRoot: object): object {
       // Same type: fold the newcomer into the variant already there, so a second
       // object or array shape widens it instead of being dropped. Scalars (and
       // the untyped `{}` fallback) carry nothing to merge, so they dedupe.
-      if (vt === "object") stack.push({ a: existing, b: v, assign: () => {} });
-      else if (vt === "array") {
+      if (vt === "object") {
+        // `existing` is mutated in place by the object merge, so there's
+        // nothing to write back.
+        stack.push({ a: existing, b: v, assign: () => {} });
+      } else if (vt === "array") {
         const bItems = (v as any).items;
         if (bItems !== undefined) {
           if (existing.items !== undefined) {
-            stack.push({ a: existing.items, b: bItems, assign: (merged) => { existing.items = merged; } });
+            stack.push({ a: existing.items, b: bItems, assign: (result) => { existing.items = result; } });
           } else {
             existing.items = bItems;
           }
