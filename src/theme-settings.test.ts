@@ -103,7 +103,12 @@ test("loadThemeState reads a stored id and custom schemes", async () => {
   const { storage } = fakeStorage({
     "jv-theme-id": "nord",
     "jv-custom-themes": JSON.stringify([
-      { id: "mine", name: "Mine", variant: "dark", palette: {} },
+      {
+        id: "mine",
+        name: "Mine",
+        variant: "dark",
+        palette: validPalette(),
+      },
     ]),
   });
 
@@ -145,6 +150,135 @@ test("loadThemeState falls back to no customs when the stored list is corrupt", 
   });
 
   expect((await loadThemeState(storage)).customs).toEqual([]);
+});
+
+function validPalette(): Record<string, string> {
+  return Object.fromEntries(PALETTE_KEYS.map((key) => [key, "#101010"]));
+}
+
+test("loadThemeState drops a stored custom theme with no palette at all", async () => {
+  const { storage } = fakeStorage({
+    "jv-custom-themes": JSON.stringify([
+      { id: "broken", name: "Broken", variant: "dark" },
+    ]),
+  });
+
+  expect((await loadThemeState(storage)).customs).toEqual([]);
+});
+
+test("loadThemeState drops a stored custom theme whose palette is missing keys", async () => {
+  const { storage } = fakeStorage({
+    "jv-custom-themes": JSON.stringify([
+      { id: "broken", name: "Broken", variant: "dark", palette: { base00: "#101010" } },
+    ]),
+  });
+
+  expect((await loadThemeState(storage)).customs).toEqual([]);
+});
+
+test("loadThemeState drops a stored custom theme with an invalid colour value", async () => {
+  const palette = validPalette();
+  palette.base08 = "not-a-color";
+  const { storage } = fakeStorage({
+    "jv-custom-themes": JSON.stringify([
+      { id: "broken", name: "Broken", variant: "dark", palette },
+    ]),
+  });
+
+  expect((await loadThemeState(storage)).customs).toEqual([]);
+});
+
+test("loadThemeState drops a stored custom theme with a non-string colour value", async () => {
+  const root = mountRoot();
+  const palette = validPalette();
+  (palette as Record<string, unknown>).base08 = null;
+  const { storage } = fakeStorage({
+    "jv-custom-themes": JSON.stringify([
+      { id: "broken", name: "Broken", variant: "dark", palette },
+    ]),
+  });
+
+  const state = await loadThemeState(storage);
+  expect(state.customs).toEqual([]);
+
+  const settings = createThemeSettings({
+    root,
+    state,
+    storage,
+    rememberQuery: true,
+    exposeWindowData: false,
+    onRememberQueryChange: vi.fn(),
+    onExposeWindowDataChange: vi.fn(),
+    onMenuOpen: vi.fn(),
+  });
+  expect(() => settings.applyTheme()).not.toThrow();
+});
+
+test("loadThemeState keeps a valid custom theme alongside a malformed one", async () => {
+  const { storage } = fakeStorage({
+    "jv-custom-themes": JSON.stringify([
+      { id: "broken", name: "Broken", variant: "dark" },
+      { id: "mine", name: "Mine", variant: "dark", palette: validPalette() },
+    ]),
+  });
+
+  expect((await loadThemeState(storage)).customs.map((s) => s.id)).toEqual(["mine"]);
+});
+
+test("a stored dedup-suffixed id survives a load unchanged and stays selected", async () => {
+  const root = mountRoot();
+  const { storage } = fakeStorage({
+    "jv-theme-id": "custom-pasted-2",
+    "jv-custom-themes": JSON.stringify([
+      { id: "custom-pasted-2", name: "Pasted", variant: "dark", palette: validPalette() },
+    ]),
+  });
+
+  const state = await loadThemeState(storage);
+  expect(state.themeId).toBe("custom-pasted-2");
+  expect(state.customs.map((s) => s.id)).toEqual(["custom-pasted-2"]);
+
+  const settings = createThemeSettings({
+    root,
+    state,
+    storage,
+    rememberQuery: true,
+    exposeWindowData: false,
+    onRememberQueryChange: vi.fn(),
+    onExposeWindowDataChange: vi.fn(),
+    onMenuOpen: vi.fn(),
+  });
+  settings.applyTheme();
+
+  // Selection actually resolves to the custom scheme, not the default fallback.
+  expect(settings.themeId()).toBe("custom-pasted-2");
+  expect(root.style.getPropertyValue("--bg")).toBe(validPalette().base00);
+});
+
+test("applyTheme falls back to the default when the stored themeId points at a dropped custom theme", async () => {
+  const root = mountRoot();
+  const { storage } = fakeStorage({
+    "jv-theme-id": "broken",
+    "jv-custom-themes": JSON.stringify([
+      { id: "broken", name: "Broken", variant: "dark" },
+    ]),
+  });
+  const state = await loadThemeState(storage);
+  const settings = createThemeSettings({
+    root,
+    state,
+    storage,
+    rememberQuery: true,
+    exposeWindowData: false,
+    onRememberQueryChange: vi.fn(),
+    onExposeWindowDataChange: vi.fn(),
+    onMenuOpen: vi.fn(),
+  });
+
+  expect(() => settings.applyTheme()).not.toThrow();
+
+  const fallback = BUILTIN_SCHEMES.find((s) => s.id === DEFAULT_THEME_ID)!;
+  expect(root.style.getPropertyValue("--bg")).toBe(fallback.palette.base00);
 });
 
 test("applyTheme paints the scheme's variables on the injected root", () => {
