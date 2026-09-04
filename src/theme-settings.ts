@@ -92,8 +92,16 @@ export function createThemeSettings(options: ThemeSettingsOptions): ThemeSetting
   let rememberQuery = options.rememberQuery;
   let exposeWindowData = options.exposeWindowData;
 
-  function storageSet(key: string, value: string): Promise<void> {
-    return storage.set({ [key]: value });
+  // Fire-and-forget: a lost preference write is the right outcome when storage
+  // is gone (see createOriginPrefsWriter in prefs.ts). An invalidated extension
+  // context both rejects and throws synchronously, so both are swallowed here —
+  // that keeps every caller free to carry on rendering.
+  function storageSet(key: string, value: string): void {
+    try {
+      void storage.set({ [key]: value }).catch(() => {});
+    } catch {
+      // Storage gone mid-session — degrade silently.
+    }
   }
 
   function allSchemes(): Base16Scheme[] {
@@ -148,7 +156,7 @@ export function createThemeSettings(options: ThemeSettingsOptions): ThemeSetting
     rememberQueryCheck.checked = rememberQuery;
     rememberQueryCheck.addEventListener("change", () => {
       rememberQuery = rememberQueryCheck.checked;
-      void storageSet(REMEMBER_QUERY_KEY, rememberQuery ? "1" : "0");
+      storageSet(REMEMBER_QUERY_KEY, rememberQuery ? "1" : "0");
       options.onRememberQueryChange(rememberQuery);
     });
 
@@ -156,7 +164,7 @@ export function createThemeSettings(options: ThemeSettingsOptions): ThemeSetting
     exposeDataCheck.checked = exposeWindowData;
     exposeDataCheck.addEventListener("change", () => {
       exposeWindowData = exposeDataCheck.checked;
-      void storageSet(EXPOSE_DATA_KEY, exposeWindowData ? "1" : "0");
+      storageSet(EXPOSE_DATA_KEY, exposeWindowData ? "1" : "0");
       options.onExposeWindowDataChange(exposeWindowData);
     });
 
@@ -192,36 +200,36 @@ export function createThemeSettings(options: ThemeSettingsOptions): ThemeSetting
         const deleteBtn = document.createElement("button");
         deleteBtn.textContent = "✕";
         deleteBtn.title = `Delete ${scheme.name}`;
-        deleteBtn.addEventListener("click", () => void deleteCustomTheme(scheme.id));
+        deleteBtn.addEventListener("click", () => deleteCustomTheme(scheme.id));
         item.append(label, deleteBtn);
         customList.appendChild(item);
       }
     }
 
-    async function saveCustomThemes(): Promise<void> {
-      await storageSet(CUSTOM_THEMES_KEY, JSON.stringify(state.customs));
+    function saveCustomThemes(): void {
+      storageSet(CUSTOM_THEMES_KEY, JSON.stringify(state.customs));
     }
 
-    async function deleteCustomTheme(id: string): Promise<void> {
+    function deleteCustomTheme(id: string): void {
       state.customs = state.customs.filter((s) => s.id !== id);
       if (state.themeId === id) {
         state.themeId = DEFAULT_THEME_ID;
-        await storageSet(THEME_ID_KEY, state.themeId);
+        storageSet(THEME_ID_KEY, state.themeId);
       }
-      await saveCustomThemes();
+      saveCustomThemes();
       renderThemeControls();
       applyTheme();
     }
 
     themeSelect.addEventListener("change", () => {
       state.themeId = themeSelect.value;
-      void storageSet(THEME_ID_KEY, state.themeId);
+      storageSet(THEME_ID_KEY, state.themeId);
       applyTheme();
     });
 
-    addThemeBtn.addEventListener("click", () => void addCustomTheme());
+    addThemeBtn.addEventListener("click", () => addCustomTheme());
 
-    async function addCustomTheme(): Promise<void> {
+    function addCustomTheme(): void {
       themeError.textContent = "";
       let scheme: Base16Scheme;
       try {
@@ -242,8 +250,8 @@ export function createThemeSettings(options: ThemeSettingsOptions): ThemeSetting
 
       state.customs.push(scheme);
       state.themeId = scheme.id;
-      await storageSet(THEME_ID_KEY, scheme.id);
-      await saveCustomThemes();
+      storageSet(THEME_ID_KEY, scheme.id);
+      saveCustomThemes();
       pasteArea.value = "";
       renderThemeControls();
       applyTheme();

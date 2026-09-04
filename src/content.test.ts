@@ -2,6 +2,7 @@
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { DEFAULT_LIGHT_ID, DEFAULT_THEME_ID } from "./themes";
 import { parseWithExactNumbers } from "./lossless-numbers";
+import { watchUnhandledRejections } from "./test-helpers";
 
 // Reviver source access needs V8 11.4+ (Node 21+, Chrome 114+) and re-emitting
 // a preserved token needs JSON.rawJSON; below either, the viewer falls back to
@@ -1683,16 +1684,6 @@ test("still detects a text/html page with an empty head", async () => {
   expect(document.getElementById("jv-root")).not.toBeNull();
   expect(document.querySelector('[data-path="data.a"]')).not.toBeNull();
 });
-
-// Node reports a floating promise nobody handled through `process`, not through
-// jsdom's window — a rejection raised inside content.ts is created in the Node
-// realm, so window.onunhandledrejection never sees it.
-function watchUnhandledRejections(): { reasons: unknown[]; stop: () => void } {
-  const reasons: unknown[] = [];
-  const handler = (reason: unknown) => reasons.push(reason);
-  process.on("unhandledRejection", handler);
-  return { reasons, stop: () => process.off("unhandledRejection", handler) };
-}
 
 // buildTreeModel is the first thing init calls after it has cleared the page,
 // so making it throw reproduces "wiped, then failed" without any test-only
