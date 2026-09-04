@@ -172,7 +172,10 @@ describe("chunked scanning", () => {
     superseded.abort();
     await expect(abandoned).resolves.toEqual([]);
 
-    await expect(largeIndex.search("item-1023")).resolves.toEqual([
+    // A fresh controller, not a bare call: the abort must stop that one scan
+    // and leave the index answering a later signalled search normally.
+    const current = new AbortController();
+    await expect(largeIndex.search("item-1023", { signal: current.signal })).resolves.toEqual([
       findNodeByPath(largeModel, "data[1023].tag")!.id,
     ]);
   });
