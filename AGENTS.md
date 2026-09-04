@@ -16,4 +16,6 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 ## Formatting
 
-This repo is hand-formatted. Prettier is deliberately not used, so there is no prettier dependency, no `.prettierrc` and no `format` script. `npx prettier --check .` fails on essentially every file — 67 at last count — even on a clean `main`; that is the expected state, not an oversight to fix, and adopting prettier was decided against in issue #86. The formatting standard is to match the surrounding file.
+This repo is hand-formatted: the standard is to match the surrounding file. Prettier is deliberately not used — no dependency, no `.prettierrc`, no `.prettierignore`, no `format` script — and adopting it was decided against in pedrosousa13/JSON-Bonsai#86.
+
+So `npx prettier --check .` fails on most files even on a clean `main`. That is the expected state rather than an oversight to fix, and its output tells you nothing about your own branch: ignore it.
