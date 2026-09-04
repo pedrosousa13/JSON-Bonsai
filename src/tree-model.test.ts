@@ -96,6 +96,16 @@ describe("buildTreeModel", () => {
     expect(model.hasRoundedNumbers).toBe(false);
   });
 
+  test("marks an exactly-representable integer past 2^53 too", () => {
+    // Documented false positive: 2^53 is exactly representable, so nothing was
+    // lost and it never enters the map — but "no exact text" is all the rule
+    // has to go on without re-keying exactness, which #87 declined. The marker
+    // only ever claims the source text is unavailable, which is true here.
+    const model = buildTreeModel({ id: 9007199254740992 }, new WeakMap());
+
+    expect(findNodeByPath(model, "data.id")!.numberIsRounded).toBe(true);
+  });
+
   test("marks nothing when the engine has no exact numbers at all", () => {
     // exactNumbers null (or absent) means the engine has no reviver source, so
     // exact and rounded are indistinguishable — mark nothing rather than mark
