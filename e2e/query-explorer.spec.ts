@@ -180,3 +180,46 @@ test("an active query drives the raw view, its copy, and clears back", async () 
     .toBe(payload);
   await expect(page.locator("#jv-raw-note")).toBeHidden();
 });
+
+test("editing and rerunning a query from Raw stays in Raw", async () => {
+  // Query-free in Raw, panel closed, from the previous test's teardown.
+  await page.click('.jv-view-btn[data-view="raw"]');
+  await expect(page.locator('.jv-view-btn[data-view="raw"]')).toHaveClass(/jv-active/);
+
+  // The ƒ button is enabled here and opens the panel (no active query).
+  await expect(page.locator("#jv-query-toggle")).toBeEnabled();
+  await page.click("#jv-query-toggle");
+  await expect(page.locator("#jv-query-panel")).toBeVisible();
+
+  // Running a query from Raw re-renders Raw from the result and stays there.
+  await page.fill("#jv-query-input", "users[0].name");
+  await page.locator("#jv-query-input").press("Escape"); // close key suggestions
+  await page.click("#jv-query-run");
+  await expect(page.locator('.jv-view-btn[data-view="raw"]')).toHaveClass(/jv-active/);
+  await expect(page.locator("#jv-raw")).toHaveText('"Ada"');
+  await expect(page.locator("#jv-query-chip")).toBeVisible();
+
+  // Clicking the chip reopens the panel, seeded, without leaving Raw.
+  await page.click("#jv-query-close");
+  await page.click("#jv-query-chip-text");
+  await expect(page.locator("#jv-query-panel")).toBeVisible();
+  await expect(page.locator("#jv-query-input")).toHaveValue("users[0].name");
+  await expect(page.locator('.jv-view-btn[data-view="raw"]')).toHaveClass(/jv-active/);
+
+  // Editing and re-running updates Raw to the new result, still in Raw.
+  await page.fill("#jv-query-input", "users[1].name");
+  await page.locator("#jv-query-input").press("Escape");
+  await page.click("#jv-query-run");
+  await expect(page.locator('.jv-view-btn[data-view="raw"]')).toHaveClass(/jv-active/);
+  await expect(page.locator("#jv-raw")).toHaveText('"Grace"');
+  await expect(page.locator("#jv-query-chip-text")).toHaveText("users[1].name");
+  await page.click("#jv-query-close");
+
+  // Clearing via the chip's ✕ restores the source text, still in Raw.
+  await page.click("#jv-query-chip-clear");
+  await expect(page.locator('.jv-view-btn[data-view="raw"]')).toHaveClass(/jv-active/);
+  await expect
+    .poll(() => page.locator("#jv-raw").textContent())
+    .toBe(payload);
+  await expect(page.locator("#jv-query-chip")).toBeHidden();
+});

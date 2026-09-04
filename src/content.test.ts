@@ -406,7 +406,7 @@ test("eligible Table button carries no data-tip", async () => {
   expect(tip.dataset.tip).toBeUndefined();
 });
 
-test("static text views disable depth, search, and query controls", async () => {
+test("static text views disable depth and search, but keep query enabled", async () => {
   vi.resetModules();
   (globalThis as any).chrome = {
     storage: {
@@ -440,18 +440,27 @@ test("static text views disable depth, search, and query controls", async () => 
   expect(search.disabled).toBe(false);
   expect(query.disabled).toBe(false);
 
-  // Formatted/raw/schema: depth, search, and query all disabled.
+  // Formatted/raw/schema: depth and search disabled; query stays enabled,
+  // since a query transforms the whole document and these views render it.
   for (const view of ["formatted", "raw", "schema"]) {
     btn(view).click();
     expect(level.disabled, view).toBe(true);
     expect(search.disabled, view).toBe(true);
-    expect(query.disabled, view).toBe(true);
+    expect(query.disabled, view).toBe(false);
   }
 
-  // The keyboard shortcut can't bypass the guard either.
+  // The query keyboard shortcut now works from a text view too.
   btn("raw").click();
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "q" }));
-  expect(queryPanel.hidden).toBe(true);
+  expect(queryPanel.hidden).toBe(false);
+  document.getElementById("jv-query-close")!.click();
+
+  // Search stays barred from text views: cmd+F is still a no-op there.
+  const searchPanel = document.getElementById("jv-search-panel")!;
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "f", metaKey: true, bubbles: true })
+  );
+  expect(searchPanel.hidden).toBe(true);
 
   // Table: search + query back on; depth stays off (a table has no depth).
   btn("table").click();
@@ -686,6 +695,81 @@ async function runQuery(expression: string): Promise<void> {
 
 const viewBtn = (view: string) =>
   document.querySelector<HTMLElement>(`.jv-view-btn[data-view="${view}"]`)!;
+
+test("switching views does not close an open query panel", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  document.body.innerHTML = `<pre>${JSON.stringify({ a: 1 })}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  document.getElementById("jv-query-toggle")!.click();
+  expect(queryPanel.hidden).toBe(false);
+
+  for (const view of ["raw", "formatted", "schema", "tree"]) {
+    viewBtn(view).click();
+    expect(queryPanel.hidden, view).toBe(false);
+  }
+});
+
+test("editing and rerunning a query from Raw stays in Raw", async () => {
+  vi.resetModules();
+  stubChrome();
+
+  const source = `{"items": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]}`;
+  document.body.innerHTML = `<pre>${source}</pre>`;
+  await import("./content");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const queryToggle = document.getElementById("jv-query-toggle") as HTMLButtonElement;
+  const queryInput = document.getElementById("jv-query-input") as HTMLInputElement;
+  const queryPanel = document.getElementById("jv-query-panel")!;
+  const chip = document.getElementById("jv-query-chip")!;
+  const chipText = document.getElementById("jv-query-chip-text")!;
+  const rawEl = document.getElementById("jv-raw")!;
+  const rawBtn = viewBtn("raw");
+
+  rawBtn.click();
+  expect(rawEl.textContent).toBe(source);
+
+  // The ƒ button is enabled here and opens an empty panel (no query yet).
+  expect(queryToggle.disabled).toBe(false);
+  queryToggle.click();
+  expect(queryPanel.hidden).toBe(false);
+  expect(queryInput.value).toBe("");
+  document.getElementById("jv-query-close")!.click();
+
+  // Running a query from Raw stays in Raw and re-renders it from the result.
+  await runQuery("items[0]");
+  expect(rawBtn.classList.contains("jv-active")).toBe(true);
+  expect(rawEl.textContent).toBe(JSON.stringify({ id: 1, name: "a" }));
+  expect(chip.hidden).toBe(false);
+
+  // Clicking the chip reopens the panel, seeded, without leaving Raw.
+  chipText.click();
+  expect(queryPanel.hidden).toBe(false);
+  expect(rawBtn.classList.contains("jv-active")).toBe(true);
+  expect(queryInput.value).toBe("items[0]");
+
+  // Editing and re-running updates Raw to the new result, still in Raw.
+  queryInput.value = "items[1]";
+  queryInput.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(rawBtn.classList.contains("jv-active")).toBe(true);
+  expect(rawEl.textContent).toBe(JSON.stringify({ id: 2, name: "b" }));
+  expect(chipText.textContent).toBe("items[1]");
+
+  // Clearing via the chip's ✕ restores the original document, still in Raw.
+  document.getElementById("jv-query-chip-clear")!.click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(rawBtn.classList.contains("jv-active")).toBe(true);
+  expect(rawEl.textContent).toBe(source);
+  expect(chip.hidden).toBe(true);
+});
 
 test("an active query drives the formatted, raw, and schema views", async () => {
   vi.resetModules();
