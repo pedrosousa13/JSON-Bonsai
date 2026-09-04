@@ -13,3 +13,7 @@ Canonical label names, as repo labels on pedrosousa13/JSON-Bonsai — plus `in-p
 ### Domain docs
 
 Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Formatting
+
+This repo is hand-formatted. Prettier is deliberately not used, so there is no prettier dependency, no `.prettierrc` and no `format` script. `npx prettier --check .` fails on essentially every file — 67 at last count — even on a clean `main`; that is the expected state, not an oversight to fix, and adopting prettier was decided against in issue #86. The formatting standard is to match the surrounding file.
