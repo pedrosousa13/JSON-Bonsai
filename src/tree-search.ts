@@ -39,7 +39,8 @@ export function normalizeSearchText(value: string): string {
 // Values are indexed lowercased and truncated to 200 chars (see
 // SEARCH_VALUE_PREVIEW_LIMIT in tree-model.ts), but the compiled regex is not
 // limited to that: long strings are also tested against the untruncated
-// `rawStringValue`, and keys and paths are never truncated.
+// `rawStringValue`. Keys are never truncated. Paths are indexed to the same
+// 200 characters, but from their leaf-ward end (#99).
 export function compileSearchRegex(query: string): RegExp | null {
   try {
     return new RegExp(query, "i");

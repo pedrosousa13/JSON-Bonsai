@@ -1,7 +1,16 @@
 import { describe, expect, test } from "vitest";
 
-import { buildTreeModel, findNodeByPath } from "./tree-model";
-import { compileSearchRegex, createLocalTreeSearchIndex } from "./tree-search";
+import {
+  SEARCH_VALUE_PREVIEW_LIMIT,
+  buildTreeModel,
+  findNodeByPath,
+  type JsonValue,
+} from "./tree-model";
+import {
+  compileSearchRegex,
+  createLocalTreeSearchIndex,
+  createTreeSearchNodes,
+} from "./tree-search";
 
 const model = buildTreeModel({
   user: { name: "Alice", city: "Berlin" },
@@ -178,5 +187,36 @@ describe("chunked scanning", () => {
     await expect(largeIndex.search("item-1023", { signal: current.signal })).resolves.toEqual([
       findNodeByPath(largeModel, "data[1023].tag")!.id,
     ]);
+  });
+});
+
+describe("deeply nested paths", () => {
+  // 2000 levels, so every path past ~level 98 is longer than the search cap.
+  // The index must carry the capped text buildTreeModel produced: before #99
+  // it carried whole paths, and the payload grew with the square of the depth.
+  let nested: JsonValue = "leaf";
+  for (let i = 1999; i >= 0; i--) {
+    nested = { [`k${i}`]: nested };
+  }
+  const deepModel = buildTreeModel(nested);
+  const deepIndex = createLocalTreeSearchIndex(deepModel);
+  const leaf = deepModel.nodes[deepModel.nodes.length - 1];
+
+  test("caps the path text handed to the worker", () => {
+    for (const node of createTreeSearchNodes(deepModel)) {
+      expect(node.searchPath.length).toBeLessThanOrEqual(
+        SEARCH_VALUE_PREVIEW_LIMIT
+      );
+    }
+  });
+
+  test("finds a deep node by its own key", async () => {
+    await expect(deepIndex.search("k1999")).resolves.toContain(leaf.id);
+  });
+
+  test("finds a deep node by the last segments of its path", async () => {
+    await expect(deepIndex.search("k1997.k1998.k1999")).resolves.toContain(
+      leaf.id
+    );
   });
 });
