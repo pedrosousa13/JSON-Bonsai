@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  SEARCH_VALUE_PREVIEW_LIMIT,
+  SEARCH_PREVIEW_LIMIT,
   buildTreeModel,
   findNodeByPath,
   type JsonValue,
@@ -204,9 +204,7 @@ describe("deeply nested paths", () => {
 
   test("caps the path text handed to the worker", () => {
     for (const node of createTreeSearchNodes(deepModel)) {
-      expect(node.searchPath.length).toBeLessThanOrEqual(
-        SEARCH_VALUE_PREVIEW_LIMIT
-      );
+      expect(node.searchPath.length).toBeLessThanOrEqual(SEARCH_PREVIEW_LIMIT);
     }
   });
 

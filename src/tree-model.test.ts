@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  SEARCH_VALUE_PREVIEW_LIMIT,
+  SEARCH_PREVIEW_LIMIT,
   buildTreeModel,
   findNodeByPath,
   type JsonValue,
@@ -163,13 +163,9 @@ describe("buildTreeModel", () => {
     );
 
     for (const node of model.nodes) {
-      expect(node.searchPath.length).toBeLessThanOrEqual(
-        SEARCH_VALUE_PREVIEW_LIMIT
-      );
+      expect(node.searchPath.length).toBeLessThanOrEqual(SEARCH_PREVIEW_LIMIT);
     }
-    expect(total).toBeLessThanOrEqual(
-      model.totalNodes * SEARCH_VALUE_PREVIEW_LIMIT
-    );
+    expect(total).toBeLessThanOrEqual(model.totalNodes * SEARCH_PREVIEW_LIMIT);
   });
 
   test("keeps the leaf-ward end of a capped search path", () => {
@@ -186,9 +182,7 @@ describe("buildTreeModel", () => {
     expect(leaf.key).toBe("k299");
     expect(leaf.searchPath.endsWith(".k297.k298.k299")).toBe(true);
     expect(leaf.searchPath.includes("data.k0.")).toBe(false);
-    expect(leaf.searchPath.length).toBeLessThanOrEqual(
-      SEARCH_VALUE_PREVIEW_LIMIT
-    );
+    expect(leaf.searchPath.length).toBeLessThanOrEqual(SEARCH_PREVIEW_LIMIT);
   });
 
   test("leaves `path` at full fidelity when the search path is capped", () => {

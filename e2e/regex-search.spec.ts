@@ -9,7 +9,7 @@ import { launchWithExtension, serveJson, type FixtureServer } from "./helpers";
 // thread for as long as it takes — 17,431 ms measured on Chromium's main thread
 // by the sanity check at the bottom of this file, 5552 ms in the issue's own
 // repro — and the cost doubles per added `a`. The trailing `c`s push it past
-// SEARCH_VALUE_PREVIEW_LIMIT so the untruncated copy is matched too, which is
+// SEARCH_PREVIEW_LIMIT so the untruncated copy is matched too, which is
 // the node the local index would have wedged on.
 const FREEZE_VALUE = `${"a".repeat(28)}b${"c".repeat(271)}`;
 const FREEZE_PATTERN = "(a+)+$";

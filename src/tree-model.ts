@@ -58,9 +58,10 @@ export interface TreeModel {
   hasRoundedNumbers: boolean;
 }
 
-// One cap governs both search previews: a value's leading characters, and a
-// path's trailing ones.
-export const SEARCH_VALUE_PREVIEW_LIMIT = 200;
+// Both search previews are indexed to this one cap — a value's leading
+// characters, a path's trailing ones — because both exist to bound what a
+// single node contributes to the index, and neither is worth tuning apart.
+export const SEARCH_PREVIEW_LIMIT = 200;
 
 const ROOT_PATH = "data";
 
@@ -113,7 +114,7 @@ function buildSearchPath(nodes: JsonNode[], task: VisitTask): string {
   const segments = [pathSegment(task.key!, task.isArrayElement)];
   let length = segments[0].length;
   let ancestorId: number | null = task.parentId;
-  while (ancestorId !== null && length < SEARCH_VALUE_PREVIEW_LIMIT) {
+  while (ancestorId !== null && length < SEARCH_PREVIEW_LIMIT) {
     // Annotated because `ancestorId` is reassigned from this node's own
     // parentId, which makes the inferred type circular.
     const ancestor: JsonNode = nodes[ancestorId];
@@ -128,10 +129,7 @@ function buildSearchPath(nodes: JsonNode[], task: VisitTask): string {
   }
   segments.reverse();
 
-  return keepLastCodePoints(
-    normalizeSearchText(segments.join("")),
-    SEARCH_VALUE_PREVIEW_LIMIT
-  );
+  return keepLastCodePoints(normalizeSearchText(segments.join("")), SEARCH_PREVIEW_LIMIT);
 }
 
 function typeOf(value: JsonValue): JsonNodeType {
@@ -169,12 +167,12 @@ function buildSearchValue(value: JsonValue): {
   }
 
   const normalized = normalizeSearchText(String(value));
-  if (normalized.length <= SEARCH_VALUE_PREVIEW_LIMIT) {
+  if (normalized.length <= SEARCH_PREVIEW_LIMIT) {
     return { searchValue: normalized, hasLongSearchValue: false };
   }
 
   return {
-    searchValue: truncateCodePoints(normalized, SEARCH_VALUE_PREVIEW_LIMIT),
+    searchValue: truncateCodePoints(normalized, SEARCH_PREVIEW_LIMIT),
     hasLongSearchValue: true,
   };
 }
