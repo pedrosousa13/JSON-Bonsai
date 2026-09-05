@@ -1,5 +1,5 @@
 import { exactTextUnavailable, type ExactNumberMap } from "./lossless-numbers";
-import { truncateCodePoints } from "./truncate";
+import { keepLastCodePoints, truncateCodePoints } from "./truncate";
 
 export type JsonValue =
   | string
@@ -58,20 +58,78 @@ export interface TreeModel {
   hasRoundedNumbers: boolean;
 }
 
-const SEARCH_VALUE_PREVIEW_LIMIT = 200;
+// Both search previews are indexed to this one cap — a value's leading
+// characters, a path's trailing ones — because both exist to bound what a
+// single node contributes to the index, and neither is worth tuning apart.
+export const SEARCH_PREVIEW_LIMIT = 200;
 
+const ROOT_PATH = "data";
+
+function pathSegment(key: string | number, isArrayElement: boolean): string {
+  if (isArrayElement) return `[${key}]`;
+  if (typeof key === "string" && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)) {
+    return `.${key}`;
+  }
+  // JSON string escaping, so `\` and `"` in the key survive the round trip and
+  // the segment is a valid JMESPath quoted identifier (see toJmespath).
+  return `[${JSON.stringify(String(key))}]`;
+}
+
+// HAZARD — read before adding any per-node consumer of `path`.
+//
+// A path is the parent's path plus one segment, and V8 keeps that as a cons
+// string: a pair of pointers, O(1) per node however deep the node sits. That
+// is the only reason a 40,000-level document can hold a path per node at all.
+//
+// Reading the string whole flattens the rope into contiguous characters that
+// stay reachable for as long as the node does. Doing that once, for one node,
+// is free — the hover path display, copy-path and query composition all do it,
+// and the rendered `data-path` attribute is bounded by virtualization. Doing it
+// for EVERY node costs O(depth^2) characters and runs the tab out of memory:
+// `searchPath: normalizeSearchText(path)` did exactly that and OOM'd a 2 GB
+// heap on a 234 KB document (#99).
+//
+// Per-node is the trigger, and lowercasing is not the only one — slicing,
+// comparing, serializing or measuring every `path` flattens it just the same.
+// Walk the ancestors instead, the way buildSearchPath does.
 function buildPath(
   parentPath: string,
   key: string | number,
   isArrayElement: boolean
 ): string {
-  if (isArrayElement) return `${parentPath}[${key}]`;
-  if (typeof key === "string" && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)) {
-    return `${parentPath}.${key}`;
+  return `${parentPath}${pathSegment(key, isArrayElement)}`;
+}
+
+// The node's own segment, then its ancestors' segments leaf-first, stopping as
+// soon as the cap is reached — so this costs O(cap), not O(depth), and never
+// touches `path`.
+//
+// Truncation keeps the leaf-ward end, the opposite of the value preview: a
+// path search is nearly always about the deep end, and a node's own key is the
+// part a user is most likely to type. The accepted cost is that on a document
+// deep enough for the cap to bite, a path search misses on root-ward segments.
+function buildSearchPath(nodes: JsonNode[], task: VisitTask): string {
+  if (task.parentId === null) return normalizeSearchText(task.path);
+
+  const segments = [pathSegment(task.key!, task.isArrayElement)];
+  let length = segments[0].length;
+  let ancestorId: number | null = task.parentId;
+  while (ancestorId !== null && length < SEARCH_PREVIEW_LIMIT) {
+    // Annotated because `ancestorId` is reassigned from this node's own
+    // parentId, which makes the inferred type circular.
+    const ancestor: JsonNode = nodes[ancestorId];
+    // The root carries no key: its whole path is the one segment it owns.
+    const segment =
+      ancestor.parentId === null
+        ? ROOT_PATH
+        : pathSegment(ancestor.key!, ancestor.isArrayElement);
+    segments.push(segment);
+    length += segment.length;
+    ancestorId = ancestor.parentId;
   }
-  // JSON string escaping, so `\` and `"` in the key survive the round trip and
-  // the segment is a valid JMESPath quoted identifier (see toJmespath).
-  return `${parentPath}[${JSON.stringify(String(key))}]`;
+  segments.reverse();
+
+  return keepLastCodePoints(normalizeSearchText(segments.join("")), SEARCH_PREVIEW_LIMIT);
 }
 
 function typeOf(value: JsonValue): JsonNodeType {
@@ -109,12 +167,12 @@ function buildSearchValue(value: JsonValue): {
   }
 
   const normalized = normalizeSearchText(String(value));
-  if (normalized.length <= SEARCH_VALUE_PREVIEW_LIMIT) {
+  if (normalized.length <= SEARCH_PREVIEW_LIMIT) {
     return { searchValue: normalized, hasLongSearchValue: false };
   }
 
   return {
-    searchValue: truncateCodePoints(normalized, SEARCH_VALUE_PREVIEW_LIMIT),
+    searchValue: truncateCodePoints(normalized, SEARCH_PREVIEW_LIMIT),
     hasLongSearchValue: true,
   };
 }
@@ -155,7 +213,7 @@ export function buildTreeModel(
       numberText: null,
       parentId: null,
       key: null,
-      path: "data",
+      path: ROOT_PATH,
       depth: 0,
       isArrayElement: false,
       inArray: false,
@@ -193,7 +251,7 @@ export function buildTreeModel(
       label,
       hasNestedContainers: false,
       searchKey: key === null ? "" : normalizeSearchText(String(key)),
-      searchPath: normalizeSearchText(path),
+      searchPath: buildSearchPath(nodes, task),
       searchValue,
       hasLongSearchValue,
     };

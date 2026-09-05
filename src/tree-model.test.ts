@@ -1,23 +1,29 @@
 import { describe, expect, test } from "vitest";
 
-import { buildTreeModel, findNodeByPath, type JsonValue } from "./tree-model";
+import {
+  SEARCH_PREVIEW_LIMIT,
+  buildTreeModel,
+  findNodeByPath,
+  type JsonValue,
+} from "./tree-model";
 import { projectLastIndex } from "./query-suggest";
 import type { ExactNumberMap } from "./lossless-numbers";
 
 describe("buildTreeModel", () => {
   test("does not overflow the stack on deeply nested JSON", () => {
-    // 10k levels of nesting — well past the V8 call-stack ceiling a recursive
-    // walk hit (RangeError). Kept at 10k because node paths grow per level, so
-    // deeper trees cost O(n^2) memory regardless of the traversal style.
+    // 40k levels of nesting — well past the V8 call-stack ceiling a recursive
+    // walk hit (RangeError). 40k is also the depth that used to exhaust a 2 GB
+    // heap: paths grow one segment per level, and indexing every one of them
+    // whole retained O(depth^2) characters (#99).
     let nested: JsonValue = "leaf";
-    for (let i = 0; i < 10_000; i++) {
+    for (let i = 0; i < 40_000; i++) {
       nested = { a: nested };
     }
 
     const model = buildTreeModel(nested);
 
-    expect(model.totalNodes).toBe(10_001);
-    expect(model.maxDepth).toBe(10_000);
+    expect(model.totalNodes).toBe(40_001);
+    expect(model.maxDepth).toBe(40_000);
   });
 
   test("preserves pre-order layout and child ordering", () => {
@@ -128,6 +134,69 @@ describe("buildTreeModel", () => {
 
     expect(node.hasLongSearchValue).toBe(true);
     expect(node.searchValue).toBe("a".repeat(199));
+  });
+
+  test("indexes the whole lowercased path when it fits under the cap", () => {
+    const model = buildTreeModel({ Users: [{ "Full Name": "x" }] });
+
+    expect(model.nodes.map((node) => node.searchPath)).toEqual([
+      "data",
+      "data.users",
+      "data.users[0]",
+      'data.users[0]["full name"]',
+    ]);
+  });
+
+  test("caps every node's search path on a deeply nested document", () => {
+    // Deep enough that the full path of the leaf is ~50x the cap. Before #99
+    // every node kept its whole lowercased path, so the model retained
+    // O(depth^2) characters and the tab ran out of memory.
+    let nested: JsonValue = "leaf";
+    for (let i = 0; i < 5_000; i++) {
+      nested = { a: nested };
+    }
+
+    const model = buildTreeModel(nested);
+    const total = model.nodes.reduce(
+      (sum, node) => sum + node.searchPath.length,
+      0
+    );
+
+    for (const node of model.nodes) {
+      expect(node.searchPath.length).toBeLessThanOrEqual(SEARCH_PREVIEW_LIMIT);
+    }
+    expect(total).toBeLessThanOrEqual(model.totalNodes * SEARCH_PREVIEW_LIMIT);
+  });
+
+  test("keeps the leaf-ward end of a capped search path", () => {
+    // A path search is about the deep end: the node's own key, and the last
+    // few segments above it. The root-ward end is what gets dropped.
+    let nested: JsonValue = "leaf";
+    for (let i = 299; i >= 0; i--) {
+      nested = { [`k${i}`]: nested };
+    }
+
+    const model = buildTreeModel(nested);
+    const leaf = model.nodes[model.nodes.length - 1];
+
+    expect(leaf.key).toBe("k299");
+    expect(leaf.searchPath.endsWith(".k297.k298.k299")).toBe(true);
+    expect(leaf.searchPath.includes("data.k0.")).toBe(false);
+    expect(leaf.searchPath.length).toBeLessThanOrEqual(SEARCH_PREVIEW_LIMIT);
+  });
+
+  test("leaves `path` at full fidelity when the search path is capped", () => {
+    let nested: JsonValue = "leaf";
+    for (let i = 299; i >= 0; i--) {
+      nested = { [`k${i}`]: nested };
+    }
+    const expected = `data${Array.from({ length: 300 }, (_, i) => `.k${i}`).join("")}`;
+
+    const model = buildTreeModel(nested);
+    const leaf = model.nodes[model.nodes.length - 1];
+
+    expect(leaf.path).toBe(expected);
+    expect(findNodeByPath(model, expected)).toBe(leaf);
   });
 
   test("JSON-escapes quoted path segments", () => {
