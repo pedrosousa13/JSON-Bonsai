@@ -17,7 +17,25 @@
     }
   }
 
-  function strictDeepEqual(first, second) {
+  // VENDOR PATCH (json-bonsai#101): strictDeepEqual below recurses once per
+  // level of nesting, so `==`/`!=` over two deeply nested, structurally equal
+  // operands overflows the call stack and throws a RangeError that no caller
+  // can distinguish from a real query failure. The extension compares operands
+  // read out of untrusted page JSON, so the nesting depth is attacker-chosen.
+  // This bound is on the comparison's recursion only, not on what the viewer
+  // will accept as a document. 200 is far deeper than any hand-written JSON
+  // structure and far below the frame budget of the smallest browser stack.
+  var MAX_COMPARISON_DEPTH = 200;
+
+  function strictDeepEqual(first, second, depth) {
+    // VENDOR PATCH (json-bonsai#101): past the bound, report "not equal" —
+    // never "equal", which would claim an equality that was not checked.
+    // `!=` inverts this same result, so the two stay complementary.
+    var currentDepth = depth === undefined ? 0 : depth;
+    if (currentDepth > MAX_COMPARISON_DEPTH) {
+      return false;
+    }
+
     // Check the scalar case first.
     if (first === second) {
       return true;
@@ -36,7 +54,7 @@
         return false;
       }
       for (var i = 0; i < first.length; i++) {
-        if (strictDeepEqual(first[i], second[i]) === false) {
+        if (strictDeepEqual(first[i], second[i], currentDepth + 1) === false) {
           return false;
         }
       }
@@ -47,7 +65,7 @@
       var keysSeen = {};
       for (var key in first) {
         if (hasOwnProperty.call(first, key)) {
-          if (strictDeepEqual(first[key], second[key]) === false) {
+          if (strictDeepEqual(first[key], second[key], currentDepth + 1) === false) {
             return false;
           }
           keysSeen[key] = true;
@@ -870,7 +888,18 @@
           var matched, current, result, first, second, field, left, right, collected, i;
           switch (node.type) {
             case "Field":
+              // VENDOR PATCH (json-bonsai#104): upstream reads value[node.name]
+              // with no own-property guard, so a field read of an inherited
+              // name — `constructor`, `__proto__`, `toString`, `hasOwnProperty`
+              // and the rest of Object.prototype — hands a live JavaScript
+              // built-in back as a query result over untrusted page JSON. Only
+              // own properties are addressable now; every inherited name reads
+              // as absent, which the existing `field === undefined` branch
+              // already renders as null.
               if (value !== null && isObject(value)) {
+                  if (hasOwnProperty.call(value, node.name) === false) {
+                      return null;
+                  }
                   field = value[node.name];
                   if (field === undefined) {
                       return null;
