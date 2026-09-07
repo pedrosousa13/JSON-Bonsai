@@ -96,6 +96,18 @@ describe("deep equality is depth bounded (issue #101)", () => {
     expect(strictDeepEqual(nest(100), nest(100))).toBe(true);
   });
 
+  // Pins where the bound actually falls, which the depths above are far too
+  // coarse to catch. MAX_COMPARISON_DEPTH is a `var` inside the vendored
+  // file's wrapper and is not on its exports, so these are literals: 199 is
+  // MAX_COMPARISON_DEPTH - 1 and 200 is MAX_COMPARISON_DEPTH. nest(k)'s
+  // innermost scalar is compared at depth k, so 199 lands one level inside
+  // the bound and 200 lands on it. Both lines move together if that constant
+  // changes; the second alone fails if the `>=` check weakens back to `>`.
+  test("the bound falls between nesting depths 199 and 200", () => {
+    expect(strictDeepEqual(nest(199), nest(199))).toBe(true);
+    expect(strictDeepEqual(nest(200), nest(200))).toBe(false);
+  });
+
   test("the bound also holds for arrays, not just objects", () => {
     expect(strictDeepEqual(nestArray(50000), nestArray(50000))).toBe(false);
     expect(strictDeepEqual(nestArray(100), nestArray(100))).toBe(true);
