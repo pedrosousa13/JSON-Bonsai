@@ -1,4 +1,4 @@
-import { search } from "jmespath";
+import { search } from "./vendor/jmespath.cjs";
 import type { JsonValue } from "./tree-model";
 
 export type QueryOutcome =

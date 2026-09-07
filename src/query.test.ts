@@ -32,10 +32,10 @@ describe("runQuery", () => {
 
   test("maps an undefined search result to null", async () => {
     vi.resetModules();
-    vi.doMock("jmespath", () => ({ search: () => undefined }));
+    vi.doMock("./vendor/jmespath.cjs", () => ({ search: () => undefined }));
     const { runQuery: mockedRunQuery } = await import("./query");
     expect(mockedRunQuery({}, "anything")).toEqual({ ok: true, result: null });
-    vi.doUnmock("jmespath");
+    vi.doUnmock("./vendor/jmespath.cjs");
     vi.resetModules();
   });
 
@@ -86,14 +86,14 @@ describe("createScopeResolver", () => {
     const search = vi.fn(() => {
       throw new Error("Unexpected token");
     });
-    vi.doMock("jmespath", () => ({ search }));
+    vi.doMock("./vendor/jmespath.cjs", () => ({ search }));
     const { createScopeResolver: mocked } = await import("./query");
     const resolve = mocked(data);
     expect(resolve("[invalid")).toBeNull();
     expect(resolve("[invalid")).toBeNull();
     expect(resolve("[invalid")).toBeNull();
     expect(search).toHaveBeenCalledTimes(1);
-    vi.doUnmock("jmespath");
+    vi.doUnmock("./vendor/jmespath.cjs");
     vi.resetModules();
   });
 
