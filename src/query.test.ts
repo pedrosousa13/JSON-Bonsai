@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { createScopeResolver, runQuery } from "./query";
+import type { JsonValue } from "./tree-model";
 
 describe("runQuery", () => {
   test("evaluates a simple path expression", () => {
@@ -32,10 +33,10 @@ describe("runQuery", () => {
 
   test("maps an undefined search result to null", async () => {
     vi.resetModules();
-    vi.doMock("jmespath", () => ({ search: () => undefined }));
+    vi.doMock("./vendor/jmespath.cjs", () => ({ search: () => undefined }));
     const { runQuery: mockedRunQuery } = await import("./query");
     expect(mockedRunQuery({}, "anything")).toEqual({ ok: true, result: null });
-    vi.doUnmock("jmespath");
+    vi.doUnmock("./vendor/jmespath.cjs");
     vi.resetModules();
   });
 
@@ -53,6 +54,27 @@ describe("runQuery", () => {
     if (!outcome.ok) {
       expect(outcome.error).toContain("abs()");
     }
+  });
+
+  // A comparison over operands nested past the engine's bound is a normal
+  // outcome the tree can render, not a query error: the depth bound the
+  // vendored engine carries for issue #101 reports "not equal" rather than
+  // overflowing the stack. Bound behaviour itself is covered in
+  // src/vendor/jmespath.test.ts; this pins the QueryOutcome the panel sees.
+  test("comparing operands nested past the engine's depth bound stays ok:true", () => {
+    // Two structurally equal operands, built separately: sharing one
+    // reference would let the engine's `first === second` short circuit
+    // answer at depth 0 and never reach the bound.
+    const nest = (): JsonValue => {
+      let node: JsonValue = 0;
+      for (let i = 0; i < 50000; i++) {
+        node = { n: node };
+      }
+      return node;
+    };
+    const doc = { items: [{ a: nest(), b: nest() }] };
+    const outcome = runQuery(doc, "items[?a == b]");
+    expect(outcome).toEqual({ ok: true, result: [] });
   });
 });
 
@@ -86,14 +108,14 @@ describe("createScopeResolver", () => {
     const search = vi.fn(() => {
       throw new Error("Unexpected token");
     });
-    vi.doMock("jmespath", () => ({ search }));
+    vi.doMock("./vendor/jmespath.cjs", () => ({ search }));
     const { createScopeResolver: mocked } = await import("./query");
     const resolve = mocked(data);
     expect(resolve("[invalid")).toBeNull();
     expect(resolve("[invalid")).toBeNull();
     expect(resolve("[invalid")).toBeNull();
     expect(search).toHaveBeenCalledTimes(1);
-    vi.doUnmock("jmespath");
+    vi.doUnmock("./vendor/jmespath.cjs");
     vi.resetModules();
   });
 
