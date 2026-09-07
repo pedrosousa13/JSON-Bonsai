@@ -96,8 +96,9 @@ changes. `src/vendor/README.md` records the provenance and the source hash.
 ### `strictDeepEqual` gains a depth bound (#101)
 
 The function takes a third `depth` argument, defaulted for the two entry calls
-that omit it, and each recursive call passes `depth + 1`. Past
-`MAX_COMPARISON_DEPTH` — 200 — it stops recursing.
+that omit it, and each recursive call passes `depth + 1`. It compares at most
+`MAX_COMPARISON_DEPTH` — 200 — levels of nesting; at level 200 it stops
+recursing and answers without descending.
 
 **What it protects against:** a `RangeError` thrown out of an ordinary `==` or
 `!=` filter, over data whose nesting depth the page chooses. The bound is on the

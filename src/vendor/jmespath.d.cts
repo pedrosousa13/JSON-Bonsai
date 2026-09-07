@@ -17,7 +17,7 @@ export function search(jsonDoc: any, query: string): any;
 
 /**
  * Structural equality, as `==` and `!=` in a JMESPath expression use it.
- * Bounded to MAX_COMPARISON_DEPTH levels of nesting — see the vendor patch
- * for json-bonsai#101. Deeper operands compare as not equal.
+ * Bounded to MAX_COMPARISON_DEPTH levels of nesting; deeper operands compare
+ * as not equal. Why, in docs/adr/0001-vendor-jmespath.md (issue #101).
  */
 export function strictDeepEqual(first: unknown, second: unknown): boolean;

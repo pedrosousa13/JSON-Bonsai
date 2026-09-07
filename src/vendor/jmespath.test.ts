@@ -12,13 +12,22 @@ function nest(depth: number): unknown {
   return node;
 }
 
+// The same, one array per level: nestArray(2) is [[0]].
+function nestArray(depth: number): unknown {
+  let node: unknown = 0;
+  for (let i = 0; i < depth; i++) {
+    node = [node];
+  }
+  return node;
+}
+
 // Two structurally equal operands under `items[0]`, so `items[?a == b]` walks
 // both to `depth` before it can decide.
 function twinDoc(depth: number): unknown {
   return { items: [{ a: nest(depth), b: nest(depth) }] };
 }
 
-describe("field resolution reads own properties only (#104)", () => {
+describe("field resolution reads own properties only (issue #104)", () => {
   const doc = { a: 1 };
 
   test("a top-level inherited name resolves to null, not a built-in", () => {
@@ -39,8 +48,8 @@ describe("field resolution reads own properties only (#104)", () => {
   });
 
   test("an inherited name resolves to null inside a filter", () => {
-    const doc2 = { items: [{ a: 1 }] };
-    expect(search(doc2, "items[?constructor]")).toEqual([]);
+    const oneItem = { items: [{ a: 1 }] };
+    expect(search(oneItem, "items[?constructor]")).toEqual([]);
   });
 
   test("a real own key with an inherited name still returns its value", () => {
@@ -53,7 +62,7 @@ describe("field resolution reads own properties only (#104)", () => {
   });
 });
 
-describe("deep equality is depth bounded (#101)", () => {
+describe("deep equality is depth bounded (issue #101)", () => {
   test("`==` over operands nested past the bound returns a result", () => {
     expect(search(twinDoc(50000), "items[?a == b]")).toEqual([]);
   });
@@ -88,14 +97,7 @@ describe("deep equality is depth bounded (#101)", () => {
   });
 
   test("the bound also holds for arrays, not just objects", () => {
-    let deep: unknown = 0;
-    for (let i = 0; i < 50000; i++) {
-      deep = [deep];
-    }
-    let deep2: unknown = 0;
-    for (let i = 0; i < 50000; i++) {
-      deep2 = [deep2];
-    }
-    expect(strictDeepEqual(deep, deep2)).toBe(false);
+    expect(strictDeepEqual(nestArray(50000), nestArray(50000))).toBe(false);
+    expect(strictDeepEqual(nestArray(100), nestArray(100))).toBe(true);
   });
 });

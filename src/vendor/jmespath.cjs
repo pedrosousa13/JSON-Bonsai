@@ -17,22 +17,16 @@
     }
   }
 
-  // VENDOR PATCH (json-bonsai#101): strictDeepEqual below recurses once per
-  // level of nesting, so `==`/`!=` over two deeply nested, structurally equal
-  // operands overflows the call stack and throws a RangeError that no caller
-  // can distinguish from a real query failure. The extension compares operands
-  // read out of untrusted page JSON, so the nesting depth is attacker-chosen.
-  // This bound is on the comparison's recursion only, not on what the viewer
-  // will accept as a document. 200 is far deeper than any hand-written JSON
-  // structure and far below the frame budget of the smallest browser stack.
+  // VENDOR PATCH (json-bonsai#101): strictDeepEqual recurses once per level of
+  // nesting, so `==`/`!=` over deeply nested equal operands overflowed the
+  // stack. It compares at most this many levels; deeper reports "not equal",
+  // never "equal". Rationale in docs/adr/0001-vendor-jmespath.md.
   var MAX_COMPARISON_DEPTH = 200;
 
   function strictDeepEqual(first, second, depth) {
-    // VENDOR PATCH (json-bonsai#101): past the bound, report "not equal" —
-    // never "equal", which would claim an equality that was not checked.
-    // `!=` inverts this same result, so the two stay complementary.
+    // VENDOR PATCH (json-bonsai#101): see MAX_COMPARISON_DEPTH above.
     var currentDepth = depth === undefined ? 0 : depth;
-    if (currentDepth > MAX_COMPARISON_DEPTH) {
+    if (currentDepth >= MAX_COMPARISON_DEPTH) {
       return false;
     }
 
